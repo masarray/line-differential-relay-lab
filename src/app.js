@@ -1,12 +1,14 @@
 import { ALGORITHM_MODES, PRESETS, createDefaultConfig } from './engine/constants.js';
 import { createExperimentDocument, parseExperimentDocument, sanitizeConfig } from './engine/schema.js';
 import { WaveformRenderer } from './ui/waveform-renderer.js';
+import { createRelayLatchState, resetRelayLatch, updateRelayLatch } from './ui/relay-latch.js';
 
 const worker = new Worker(new URL('./worker/simulation-worker.js', import.meta.url), { type: 'module' });
 const renderer = new WaveformRenderer(document.querySelector('#waveform-canvas'));
 let config = createDefaultConfig();
 let running = true;
 let latestFrame = null;
+let relayLatch = createRelayLatchState();
 
 const units = {
   baseDelayMs: ['ms', 2],
@@ -90,6 +92,67 @@ function updateConfidence(domain, confidence) {
   bar.style.backgroundColor = scoreColor(confidence.score);
 }
 
+function setRelayLed(id, active, condition = 'normal') {
+  const led = element(id);
+  led.dataset.active = String(Boolean(active));
+  led.dataset.condition = condition;
+}
+
+function updateVirtualRelay(frame) {
+  if (!frame) return;
+
+  relayLatch = updateRelayLatch(relayLatch, frame);
+  const blocked = frame.protection.permission === 'BLOCKED';
+  const secure = frame.protection.state === 'SECURE WINDOW' || frame.protection.state === 'WATCH';
+  const pickup = frame.differential.validatedRmsPu >= frame.differential.activeThresholdPu * 0.9;
+  const channelScore = frame.confidence.channel.score;
+  const commCondition = blocked || channelScore < 42 ? 'danger' : channelScore < 82 ? 'warning' : 'normal';
+  const hardError = blocked || frame.confidence.reasons.some((reason) =>
+    ['PACKET_INTEGRITY_FAIL', 'TIME_SYNC_INVALID', 'PACKET_TOO_OLD'].includes(reason));
+
+  setRelayLed('relay-run-led', running, running ? 'normal' : 'warning');
+  setRelayLed('relay-comm-led', true, commCondition);
+  setRelayLed('relay-error-led', hardError, 'danger');
+  setRelayLed('relay-pickup-led', pickup || frame.protection.operate, 'warning');
+  setRelayLed('relay-secure-led', secure, 'warning');
+  setRelayLed('relay-block-led', blocked, 'blocked');
+  setRelayLed('relay-trip-led', relayLatch.latched, 'danger');
+
+  const device = element('virtual-relay');
+  device.dataset.relayState = relayLatch.latched ? 'trip' : blocked ? 'blocked' : secure ? 'secure' : 'ready';
+
+  element('relay-lcd-clock').textContent = `${frame.timeSeconds.toFixed(3)} s`;
+  element('relay-lcd-idiff').textContent = `${frame.differential.validatedRmsPu.toFixed(3)} pu`;
+  element('relay-lcd-ibias').textContent = `${frame.differential.restraintRmsPu.toFixed(3)} pu`;
+  element('relay-lcd-state').textContent = frame.protection.state;
+  element('relay-lcd-permission').textContent = frame.protection.permission;
+
+  if (relayLatch.latched) {
+    element('relay-lcd-title').textContent = 'TRIP LATCHED';
+    element('relay-lcd-message').textContent = `87L OPERATE @ ${relayLatch.tripTimeSeconds.toFixed(3)} s`;
+    element('relay-latch-status').textContent = '87L TRIP';
+    element('relay-latch-detail').textContent = `${relayLatch.idiffPu.toFixed(3)} pu · ${relayLatch.scenarioLabel}`;
+  } else if (blocked) {
+    element('relay-lcd-title').textContent = '87L BLOCKED';
+    element('relay-lcd-message').textContent = 'REMOTE DATA NOT RELIABLE';
+    element('relay-latch-status').textContent = 'CLEAR';
+    element('relay-latch-detail').textContent = 'Trip permission blocked';
+  } else if (secure) {
+    element('relay-lcd-title').textContent = 'SECURE MODE';
+    element('relay-lcd-message').textContent = `${frame.protection.secureRemainingMs.toFixed(0)} ms VALIDATION WINDOW`;
+    element('relay-latch-status').textContent = 'CLEAR';
+    element('relay-latch-detail').textContent = 'Supervised operation active';
+  } else {
+    element('relay-lcd-title').textContent = '87L IN SERVICE';
+    element('relay-lcd-message').textContent = 'PROTECTION AVAILABLE';
+    element('relay-latch-status').textContent = 'CLEAR';
+    element('relay-latch-detail').textContent = 'No latched operation';
+  }
+
+  element('relay-output-state').textContent = relayLatch.latched ? 'TRIP OUTPUT LATCHED' : blocked ? 'TRIP OUTPUT BLOCKED' : 'TRIP CONTACT RESET';
+  element('relay-reset-latch').disabled = !relayLatch.latched;
+}
+
 function updateFrame(frame) {
   latestFrame = frame;
   renderer.setFrame(frame);
@@ -164,6 +227,8 @@ function updateFrame(frame) {
         ? 'var(--danger)'
         : 'var(--good)';
 
+  updateVirtualRelay(frame);
+
   element('canvas-summary').textContent = [
     `${frame.modeLabel}, ${frame.scenarioLabel}.`,
     `Validated differential current ${frame.differential.validatedRmsPu.toFixed(3)} per unit.`,
@@ -181,6 +246,7 @@ function setRunning(nextRunning) {
   element('play-button').textContent = running ? 'Ⅱ PAUSE' : '▶ RUN';
   element('run-state').textContent = running ? 'RUNNING' : 'PAUSED';
   document.querySelector('.live-indicator').classList.toggle('is-paused', !running);
+  if (latestFrame) updateVirtualRelay(latestFrame);
 }
 
 document.querySelectorAll('[data-config]').forEach((control) => {
@@ -233,6 +299,15 @@ element('step-button').addEventListener('click', () => {
 });
 element('reset-button').addEventListener('click', () => {
   worker.postMessage({ type: 'RESET', config });
+});
+
+element('relay-reset-latch').addEventListener('click', () => {
+  const operateActive = Boolean(latestFrame?.protection?.operate);
+  relayLatch = resetRelayLatch(relayLatch, operateActive);
+  if (operateActive) {
+    element('relay-latch-detail').textContent = 'RESET INHIBITED · operate condition active';
+  }
+  updateVirtualRelay(latestFrame);
 });
 
 element('theme-button').addEventListener('click', () => {
