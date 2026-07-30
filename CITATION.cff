@@ -1,0 +1,17 @@
+cff-version: 1.2.0
+message: "If you use this simulator in teaching, research, or demonstrations, please cite the repository."
+title: "Line Differential Relay Algorithm Laboratory"
+type: software
+authors:
+  - family-names: "Ari"
+    given-names: "Mas"
+version: 0.1.0
+date-released: 2026-07-30
+license: GPL-3.0-only
+repository-code: "https://github.com/masarray/line-differential-relay-lab"
+url: "https://masarray.github.io/line-differential-relay-lab/"
+keywords:
+  - line differential protection
+  - 87L
+  - relay communication
+  - waveform tracking

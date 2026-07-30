@@ -1,0 +1,17 @@
+{
+  "name": "Line Differential Relay Algorithm Laboratory",
+  "short_name": "87L Lab",
+  "description": "Industrial real-time 87L communication and waveform-alignment simulator.",
+  "start_url": "./",
+  "display": "standalone",
+  "background_color": "#091418",
+  "theme_color": "#091418",
+  "icons": [
+    {
+      "src": "./favicon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

@@ -1,0 +1,143 @@
+export function clamp(value, minimum, maximum) {
+  return Math.min(maximum, Math.max(minimum, value));
+}
+
+export function lerp(a, b, amount) {
+  return a + (b - a) * amount;
+}
+
+export function finiteOr(value, fallback = 0) {
+  return Number.isFinite(value) ? value : fallback;
+}
+
+export function rms(values, startIndex = 0) {
+  let sum = 0;
+  let count = 0;
+  for (let index = Math.max(0, startIndex); index < values.length; index += 1) {
+    const value = values[index];
+    if (!Number.isFinite(value)) continue;
+    sum += value * value;
+    count += 1;
+  }
+  return count ? Math.sqrt(sum / count) : 0;
+}
+
+export function mean(values) {
+  let total = 0;
+  let count = 0;
+  for (const value of values) {
+    if (!Number.isFinite(value)) continue;
+    total += value;
+    count += 1;
+  }
+  return count ? total / count : 0;
+}
+
+export function sampleLinear(values, index) {
+  const lower = Math.floor(index);
+  const upper = lower + 1;
+  if (lower < 0 || upper >= values.length) return Number.NaN;
+  const a = values[lower];
+  const b = values[upper];
+  if (!Number.isFinite(a) || !Number.isFinite(b)) return Number.NaN;
+  return lerp(a, b, index - lower);
+}
+
+/** Positive shift advances the signal in time: output[i] = input[i + shift]. */
+export function shiftSeries(values, shiftSamples) {
+  const shifted = new Float64Array(values.length);
+  shifted.fill(Number.NaN);
+  for (let index = 0; index < values.length; index += 1) {
+    shifted[index] = sampleLinear(values, index + shiftSamples);
+  }
+  return shifted;
+}
+
+export function fillSmallGaps(values, maximumGapSamples) {
+  const output = Float64Array.from(values);
+  let index = 0;
+  let predictedCount = 0;
+  while (index < output.length) {
+    if (Number.isFinite(output[index])) {
+      index += 1;
+      continue;
+    }
+    const gapStart = index;
+    while (index < output.length && !Number.isFinite(output[index])) index += 1;
+    const gapLength = index - gapStart;
+    const leftIndex = gapStart - 1;
+    const rightIndex = index;
+    if (
+      gapLength <= maximumGapSamples &&
+      leftIndex >= 0 &&
+      rightIndex < output.length &&
+      Number.isFinite(output[leftIndex]) &&
+      Number.isFinite(output[rightIndex])
+    ) {
+      for (let gapIndex = 1; gapIndex <= gapLength; gapIndex += 1) {
+        output[leftIndex + gapIndex] = lerp(
+          output[leftIndex],
+          output[rightIndex],
+          gapIndex / (gapLength + 1)
+        );
+        predictedCount += 1;
+      }
+    }
+  }
+  return { values: output, predictedCount };
+}
+
+export function normalizedCorrelation(a, b, start = 0, end = a.length) {
+  let sumA = 0;
+  let sumB = 0;
+  let count = 0;
+  const upper = Math.min(end, a.length, b.length);
+  for (let index = Math.max(0, start); index < upper; index += 1) {
+    if (!Number.isFinite(a[index]) || !Number.isFinite(b[index])) continue;
+    sumA += a[index];
+    sumB += b[index];
+    count += 1;
+  }
+  if (count < 8) return 0;
+  const meanA = sumA / count;
+  const meanB = sumB / count;
+  let numerator = 0;
+  let energyA = 0;
+  let energyB = 0;
+  for (let index = Math.max(0, start); index < upper; index += 1) {
+    const valueA = a[index];
+    const valueB = b[index];
+    if (!Number.isFinite(valueA) || !Number.isFinite(valueB)) continue;
+    const centeredA = valueA - meanA;
+    const centeredB = valueB - meanB;
+    numerator += centeredA * centeredB;
+    energyA += centeredA * centeredA;
+    energyB += centeredB * centeredB;
+  }
+  const denominator = Math.sqrt(energyA * energyB);
+  return denominator > 1e-12 ? numerator / denominator : 0;
+}
+
+export function estimateLag(reference, candidate, maximumLagSamples, searchStart = 0) {
+  const results = [];
+  const roundedMaximum = Math.max(0, Math.floor(maximumLagSamples));
+  for (let lag = -roundedMaximum; lag <= roundedMaximum; lag += 1) {
+    const shifted = shiftSeries(candidate, lag);
+    const correlation = normalizedCorrelation(reference, shifted, searchStart);
+    results.push({ lag, correlation, score: Math.abs(correlation) });
+  }
+  results.sort((a, b) => b.score - a.score);
+  const best = results[0] ?? { lag: 0, correlation: 0, score: 0 };
+  const runnerUp = results.find((entry) => Math.abs(entry.lag - best.lag) > 1) ?? results[1] ?? best;
+  return {
+    lagSamples: best.lag,
+    correlation: best.correlation,
+    peakScore: best.score,
+    ambiguity: clamp(runnerUp.score / Math.max(best.score, 1e-9), 0, 1)
+  };
+}
+
+export function round(value, digits = 3) {
+  const scale = 10 ** digits;
+  return Math.round(value * scale) / scale;
+}

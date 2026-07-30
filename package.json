@@ -1,0 +1,38 @@
+{
+  "name": "line-differential-relay-lab",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Industrial real-time 87L line differential relay algorithm laboratory for communication, time synchronization, secure window, and waveform tracking experiments.",
+  "type": "module",
+  "scripts": {
+    "dev": "node scripts/dev-server.mjs",
+    "build": "node scripts/build.mjs",
+    "test": "node --test",
+    "check": "node --check src/app.js && node --check src/worker/simulation-worker.js && node --check src/engine/simulation.js",
+    "validate": "npm run check && npm test && npm run build"
+  },
+  "keywords": [
+    "87l",
+    "line-differential",
+    "protection-relay",
+    "power-system-protection",
+    "relay-simulation",
+    "waveform-tracking",
+    "communication-delay",
+    "github-pages"
+  ],
+  "author": "Ari / SonkuPik Engineering",
+  "license": "GPL-3.0-only",
+  "engines": {
+    "node": ">=20"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/masarray/line-differential-relay-lab.git"
+  },
+  "homepage": "https://masarray.github.io/line-differential-relay-lab/",
+  "bugs": {
+    "url": "https://github.com/masarray/line-differential-relay-lab/issues"
+  },
+  "packageManager": "npm@10.9.2"
+}

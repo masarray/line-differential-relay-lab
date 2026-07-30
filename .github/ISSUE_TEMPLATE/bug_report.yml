@@ -1,0 +1,41 @@
+name: Bug report
+description: Report a reproducible simulator, UX, numerical, or deployment defect
+title: "[Bug]: "
+labels: [bug, needs-triage]
+body:
+  - type: markdown
+    attributes:
+      value: Please remove confidential or vendor-proprietary information before submitting.
+  - type: textarea
+    id: summary
+    attributes:
+      label: What happened?
+      description: Describe the observed and expected behaviour.
+    validations:
+      required: true
+  - type: textarea
+    id: experiment
+    attributes:
+      label: Experiment configuration
+      description: Attach or paste the exported experiment JSON and random seed when possible.
+  - type: dropdown
+    id: domain
+    attributes:
+      label: Affected area
+      options:
+        - Electrical signal model
+        - Communication/time model
+        - Alignment algorithm
+        - Confidence/state machine
+        - User interface
+        - GitHub Pages/build
+        - Documentation
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Reproduction and evidence
+      description: Include steps, screenshots, browser, viewport, and numerical observations.
+    validations:
+      required: true

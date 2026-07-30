@@ -1,0 +1,21 @@
+# Build output
+dist/
+
+# Local tooling
+node_modules/
+.DS_Store
+Thumbs.db
+*.log
+
+# Editors
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json
+.idea/
+
+# Test and coverage output
+coverage/
+.nyc_output/
+
+# Local experiment exports
+experiments/private/

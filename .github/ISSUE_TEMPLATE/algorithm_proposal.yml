@@ -1,0 +1,33 @@
+name: Algorithm proposal
+description: Propose a new model, protection algorithm, or validation scenario
+title: "[Algorithm]: "
+labels: [algorithm, discussion]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Engineering problem
+      description: Which protection or communication problem should this address?
+    validations:
+      required: true
+  - type: textarea
+    id: assumptions
+    attributes:
+      label: Assumptions and sign conventions
+      description: State units, timing model, current direction, and validity boundaries.
+    validations:
+      required: true
+  - type: textarea
+    id: approach
+    attributes:
+      label: Proposed approach
+      description: Explain the algorithm and why it is safe to simulate.
+    validations:
+      required: true
+  - type: textarea
+    id: validation
+    attributes:
+      label: Validation plan
+      description: Describe deterministic vectors, expected results, and failure cases.
+    validations:
+      required: true
