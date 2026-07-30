@@ -1,7 +1,11 @@
+import { installVirtualRelayPanel } from './virtual-relay-panel.js';
+
 /**
  * GPL-3.0-only
  * Pure latching state for the educational virtual relay front panel.
  */
+
+installVirtualRelayPanel();
 
 export function createRelayLatchState() {
   return Object.freeze({
