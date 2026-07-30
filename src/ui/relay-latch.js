@@ -5,7 +5,25 @@ import { installVirtualRelayPanel } from './virtual-relay-panel.js';
  * Pure latching state for the educational virtual relay front panel.
  */
 
-if (typeof document !== 'undefined') installVirtualRelayPanel();
+if (typeof document !== 'undefined') {
+  installVirtualRelayPanel();
+  const alignmentOutput = document.getElementById('alignment-error');
+  const alignmentLabel = alignmentOutput?.previousElementSibling;
+  if (alignmentLabel) alignmentLabel.textContent = 'ALIGN UNC';
+  if (alignmentOutput) {
+    const presentUncertainty = () => {
+      if (alignmentOutput.textContent.startsWith('+')) {
+        alignmentOutput.textContent = `±${alignmentOutput.textContent.slice(1)}`;
+      }
+    };
+    new MutationObserver(presentUncertainty).observe(alignmentOutput, {
+      childList: true,
+      characterData: true,
+      subtree: true
+    });
+    presentUncertainty();
+  }
+}
 
 export function createRelayLatchState() {
   return Object.freeze({
