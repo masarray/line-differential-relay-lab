@@ -7,20 +7,35 @@ function finite(value) {
   return typeof value === 'number' && Number.isFinite(value);
 }
 
+function clamp(value, minimum, maximum) {
+  return Math.max(minimum, Math.min(maximum, value));
+}
+
+function plotGeometry(width) {
+  const labelWidth = width < 720 ? 92 : 118;
+  const valueWidth = width < 720 ? 68 : 88;
+  const plotLeft = labelWidth;
+  const plotRight = width - valueWidth;
+  const plotWidth = Math.max(20, plotRight - plotLeft);
+  return { labelWidth, valueWidth, plotLeft, plotRight, plotWidth };
+}
+
 export class WaveformRenderer {
   constructor(canvas) {
     this.canvas = canvas;
     this.context = canvas.getContext('2d', { alpha: false });
     this.frame = null;
     this.cursorRatio = 0.76;
+    this.pointerCanvasX = null;
     this.resizeObserver = new ResizeObserver(() => this.draw());
     this.resizeObserver.observe(canvas);
     canvas.addEventListener('pointermove', (event) => {
       const rect = canvas.getBoundingClientRect();
-      this.cursorRatio = Math.max(0, Math.min(1, (event.clientX - rect.left) / rect.width));
+      this.pointerCanvasX = clamp(event.clientX - rect.left, 0, rect.width);
       this.draw();
     });
     canvas.addEventListener('pointerleave', () => {
+      this.pointerCanvasX = null;
       this.cursorRatio = 0.76;
       this.draw();
     });
@@ -62,11 +77,7 @@ export class WaveformRenderer {
     context.fillStyle = background;
     context.fillRect(0, 0, width, height);
 
-    const labelWidth = width < 720 ? 92 : 118;
-    const valueWidth = width < 720 ? 68 : 88;
-    const plotLeft = labelWidth;
-    const plotRight = width - valueWidth;
-    const plotWidth = Math.max(20, plotRight - plotLeft);
+    const { plotLeft, plotRight, plotWidth } = plotGeometry(width);
     const laneCount = 4;
     const laneHeight = height / laneCount;
 
@@ -186,7 +197,12 @@ export class WaveformRenderer {
     }
     context.setLineDash([]);
 
-    const cursorX = plotLeft + plotWidth * this.cursorRatio;
+    const cursorX = this.pointerCanvasX === null
+      ? plotLeft + plotWidth * this.cursorRatio
+      : clamp(this.pointerCanvasX, 0, width);
+    const activeCursorRatio = clamp((cursorX - plotLeft) / plotWidth, 0, 1);
+    this.cursorRatio = activeCursorRatio;
+
     context.strokeStyle = cssColor(root, '--cursor', '#c7f7ef');
     context.globalAlpha = 0.65;
     context.beginPath();
@@ -197,7 +213,7 @@ export class WaveformRenderer {
 
     const cursorIndex = Math.min(
       this.frame.waveforms.local.length - 1,
-      Math.max(0, Math.round(this.cursorRatio * (this.frame.waveforms.local.length - 1)))
+      Math.max(0, Math.round(activeCursorRatio * (this.frame.waveforms.local.length - 1)))
     );
     const laneValues = [
       this.frame.waveforms.local[cursorIndex],
