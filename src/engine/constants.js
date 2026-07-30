@@ -50,6 +50,7 @@ export const DEFAULT_CONFIG = Object.freeze({
   packetAbsoluteAgeMs: 18,
   trackWindowMs: 2.5,
   trackerMaxSlewMs: 0.45,
+  minProtectionValidFraction: 0.9,
   minPickupPu: 0.22,
   restraintSlope: 0.3,
   securePickupMultiplier: 1.55,
