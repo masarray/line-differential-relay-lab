@@ -40,6 +40,13 @@ export function sanitizeConfig(candidate = {}) {
   config.packetAbsoluteAgeMs = number(config.packetAbsoluteAgeMs, defaults.packetAbsoluteAgeMs, 4, 100);
   config.trackWindowMs = number(config.trackWindowMs, defaults.trackWindowMs, 0.2, 8);
   config.trackerMaxSlewMs = number(config.trackerMaxSlewMs, defaults.trackerMaxSlewMs, 0.05, 2);
+  config.trackerShortWindowCycles = number(config.trackerShortWindowCycles, defaults.trackerShortWindowCycles, 0.25, 1.5);
+  config.trackerStabilityWindowCycles = number(config.trackerStabilityWindowCycles, defaults.trackerStabilityWindowCycles, 1, 4);
+  config.trackerAgreementMs = number(config.trackerAgreementMs, defaults.trackerAgreementMs, 0.1, 2);
+  config.trackerAlpha = number(config.trackerAlpha, defaults.trackerAlpha, 0.05, 1);
+  config.trackerBeta = number(config.trackerBeta, defaults.trackerBeta, 0, 0.5);
+  config.trackerVelocityDamping = number(config.trackerVelocityDamping, defaults.trackerVelocityDamping, 0, 0.95);
+  config.trackerMaxVelocityMs = number(config.trackerMaxVelocityMs, defaults.trackerMaxVelocityMs, 0.02, 1);
   config.minProtectionValidFraction = number(
     config.minProtectionValidFraction,
     defaults.minProtectionValidFraction,
