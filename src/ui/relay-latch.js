@@ -35,6 +35,7 @@ export function resetRelayLatch(previous, operateConditionActive = false) {
   if (operateConditionActive) {
     return Object.freeze({
       ...previous,
+      scenarioLabel: 'RESET INHIBITED · operate condition active',
       resetInhibited: true
     });
   }
