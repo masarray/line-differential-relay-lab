@@ -27,7 +27,7 @@ Network latency does not directly affect sample alignment while common-time samp
 
 ## Smart waveform tracking
 
-The tracker starts from the ping-pong coarse estimate and searches only inside a bounded residual window. It computes normalized correlation, peak ambiguity, correction innovation, RTT stability, and a bounded correction trajectory. The tracker may reduce alignment error but cannot override hard-invalid communication data.
+The tracker starts from the ping-pong coarse estimate and searches only inside a bounded residual window. It cannot override hard-invalid communication data.
 
 ### P0 algorithm boundary
 
@@ -42,15 +42,35 @@ The algorithm under test can receive only receiver-observable information:
 - previous estimator state,
 - common-time sample age only in the absolute-time reference mode.
 
-It cannot receive:
+It cannot receive true forward/return delay, true clock error, scenario identity, ground-truth fault identity, or actual alignment residual. Ground-truth values are stored only under the diagnostic namespace.
 
-- true forward or return path delay,
-- true clock error,
-- scenario or preset name,
-- ground-truth fault identity,
-- actual alignment residual.
+### P1 dual-horizon estimator
 
-Ground-truth values are stored only under the diagnostic namespace for automated validation.
+```text
+RTT / 2 coarse alignment
+        ↓
+short-horizon correlation ── rapid change evidence
+stability-horizon correlation ── persistent alignment evidence
+        ↓
+estimator agreement and polarity check
+        ↓
+FUSED / SHORT / STABILITY / HOLD
+        ↓
+bounded delay-trajectory filter
+```
+
+The short horizon is intentionally more responsive to route or delay changes. The stability horizon uses a longer waveform history and is harder to disturb with a brief anomaly. Their lag estimates are refined below one sample using parabolic interpolation around the strongest bounded correlation peak.
+
+When both estimators agree, their corrections are quality-weighted and fused. A short-only correction is accepted only when its evidence is substantially stronger and measured RTT has changed. A stability-only correction is accepted when the longer estimator is clearly more credible. Otherwise the new lag measurement is rejected and the previous bounded delay trajectory is held.
+
+The trajectory state carries:
+
+- accepted correction,
+- correction velocity,
+- innovation between predicted and requested correction,
+- held-frame count.
+
+Innovation and correction slew are bounded. Therefore a single correlation peak cannot force an abrupt phase jump, even when it is inside the wider search window.
 
 ### Tracking versus protection buffers
 
@@ -66,14 +86,7 @@ Protection buffer
 
 Predicted or interpolated samples cannot initiate 87L operation. Trip permission is inhibited when measured-valid coverage falls below the configured minimum.
 
-The simulator deliberately separates:
-
-- communication anomaly evidence,
-- timing/alignment evidence,
-- waveform coherence,
-- measured electrical fault evidence.
-
-Low waveform correlation alone is not classified as a communication failure because a genuine power-system disturbance can also change the waveform.
+The simulator deliberately separates communication anomaly evidence, timing/alignment evidence, waveform coherence, and measured electrical fault evidence. Low waveform correlation alone is not classified as a communication failure because a genuine power-system disturbance can also change the waveform.
 
 ## Protection characteristic
 
