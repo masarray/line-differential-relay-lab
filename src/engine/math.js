@@ -134,21 +134,54 @@ export function normalizedCorrelation(a, b, start = 0, end = a.length) {
   return denominator > 1e-12 ? numerator / denominator : 0;
 }
 
-export function estimateLag(reference, candidate, maximumLagSamples, searchStart = 0) {
+function parabolicPeakOffset(left, center, right) {
+  const denominator = left - 2 * center + right;
+  if (!Number.isFinite(denominator) || Math.abs(denominator) < 1e-12) return 0;
+  return clamp(0.5 * (left - right) / denominator, -0.5, 0.5);
+}
+
+/**
+ * Bounded correlation lag estimator with parabolic sub-sample refinement.
+ * Interpolation refines the estimator peak and never synthesizes protection evidence.
+ */
+export function estimateLag(reference, candidate, maximumLagSamples, searchStart = 0, searchEnd = reference.length) {
   const results = [];
   const roundedMaximum = Math.max(0, Math.floor(maximumLagSamples));
   for (let lag = -roundedMaximum; lag <= roundedMaximum; lag += 1) {
     const shifted = shiftSeries(candidate, lag);
-    const correlation = normalizedCorrelation(reference, shifted, searchStart);
+    const correlation = normalizedCorrelation(reference, shifted, searchStart, searchEnd);
     results.push({ lag, correlation, score: Math.abs(correlation) });
   }
-  results.sort((a, b) => b.score - a.score);
-  const best = results[0] ?? { lag: 0, correlation: 0, score: 0 };
-  const runnerUp = results.find((entry) => Math.abs(entry.lag - best.lag) > 1) ?? results[1] ?? best;
+
+  const ranked = [...results].sort((a, b) => b.score - a.score);
+  const best = ranked[0] ?? { lag: 0, correlation: 0, score: 0 };
+  const bestIndex = results.findIndex((entry) => entry.lag === best.lag);
+  const left = results[bestIndex - 1];
+  const right = results[bestIndex + 1];
+  const subSampleOffset = left && right
+    ? parabolicPeakOffset(left.score, best.score, right.score)
+    : 0;
+  const refinedLag = best.lag + subSampleOffset;
+  const refinedCorrelation = normalizedCorrelation(
+    reference,
+    shiftSeries(candidate, refinedLag),
+    searchStart,
+    searchEnd
+  );
+
+  const exclusionRadius = Math.max(2, Math.round(roundedMaximum * 0.2));
+  const runnerUp = ranked.find((entry) => Math.abs(entry.lag - best.lag) > exclusionRadius) ?? ranked[1] ?? best;
+  const neighbourAverage = left && right ? (left.score + right.score) / 2 : best.score;
+  const peakCurvature = clamp((best.score - neighbourAverage) / Math.max(best.score, 1e-9), 0, 1);
+
   return {
     lagSamples: best.lag,
-    correlation: best.correlation,
-    peakScore: best.score,
+    refinedLagSamples: refinedLag,
+    integerLagSamples: best.lag,
+    subSampleOffset,
+    correlation: refinedCorrelation,
+    peakScore: Math.abs(refinedCorrelation),
+    peakCurvature,
     ambiguity: clamp(runnerUp.score / Math.max(best.score, 1e-9), 0, 1)
   };
 }
