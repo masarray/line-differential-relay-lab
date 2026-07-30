@@ -12,6 +12,22 @@ The project follows Semantic Versioning.
 - Side-by-side deterministic algorithm comparison
 - Expanded CT saturation and sequence-component models
 
+## [0.3.0] - 2026-07-31
+
+### Changed
+
+- Smart tracking algorithm now operates without true forward/return delay or scenario-name access
+- Confidence and protection permission now use receiver-observable RTT, packet quality, estimator evidence, and measured-data coverage only
+- Short-gap interpolation is isolated to the tracking buffer and cannot become 87L trip evidence
+- Validated Idiff and restraint are calculated from measured-valid remote samples only
+- Trip permission is inhibited below the configurable measured-sample coverage threshold
+- Ground-truth timing residual is retained only under a diagnostic namespace for validation
+- Evaluation windows now account for alignment buffering without disguising missing samples
+
+### Added
+
+- Automated P0 boundary tests covering blind tracking, oracle independence, tracking-only interpolation, and measured-coverage trip inhibition
+
 ## [0.2.0] - 2026-07-30
 
 ### Added
