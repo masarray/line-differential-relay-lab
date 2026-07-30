@@ -1,6 +1,23 @@
 import { ALGORITHM_MODES } from './constants.js';
 import { clamp, estimateLag, fillSmallGaps, normalizedCorrelation, shiftSeries } from './math.js';
 
+function receiverChannelView(channel, algorithm) {
+  const view = {
+    rttMs: Number(channel.rttMs),
+    rttStepMs: Number(channel.rttStepMs ?? 0),
+    rttJitterMs: Number(channel.rttJitterMs ?? 0),
+    packetAgeMs: Number(channel.packetAgeMs ?? 0),
+    corruption: Boolean(channel.corruption),
+    hardInvalid: Boolean(channel.hardInvalid),
+    timeSyncValid: Boolean(channel.timeSyncValid)
+  };
+  if (algorithm === ALGORITHM_MODES.GPS) {
+    view.absoluteTimeShiftMs = Number(channel.absoluteTimeShiftMs);
+    view.timeReferenceUncertaintyMs = Number(channel.timeReferenceUncertaintyMs ?? 0.05);
+  }
+  return view;
+}
+
 function correlationTimingUncertaintyMs(correlation, frequencyHz) {
   const coherence = clamp(Math.abs(correlation), 0, 1);
   const phaseRadians = Math.acos(coherence);
@@ -28,11 +45,12 @@ function estimateBlindUncertaintyMs({ config, channel, tracker, trackingCorrelat
 
 /**
  * Aligns remote current using only information available to the algorithm under
- * test. Ground-truth path delay is intentionally absent from the channel input.
+ * test. Ground-truth path delay is intentionally absent from the receiver view.
  */
 export function alignRemote({ local, remoteReceived, config, channel, previousTrackingMs = 0 }) {
+  const receiverChannel = receiverChannelView(channel, config.algorithm);
   const samplesPerMs = config.sampleRateHz / 1000;
-  const pingPongEstimateMs = channel.rttMs / 2;
+  const pingPongEstimateMs = receiverChannel.rttMs / 2;
   let estimatedShiftMs = pingPongEstimateMs;
   let trackingCorrectionMs = 0;
   let tracker = {
@@ -52,8 +70,8 @@ export function alignRemote({ local, remoteReceived, config, channel, previousTr
   tracker.predictedFraction = gapFilled.predictedCount / Math.max(1, remoteReceived.length);
 
   if (config.algorithm === ALGORITHM_MODES.GPS) {
-    estimatedShiftMs = channel.timeSyncValid && Number.isFinite(channel.absoluteTimeShiftMs)
-      ? channel.absoluteTimeShiftMs
+    estimatedShiftMs = receiverChannel.timeSyncValid && Number.isFinite(receiverChannel.absoluteTimeShiftMs)
+      ? receiverChannel.absoluteTimeShiftMs
       : pingPongEstimateMs;
   }
 
@@ -87,7 +105,7 @@ export function alignRemote({ local, remoteReceived, config, channel, previousTr
   const trackingCorrelation = normalizedCorrelation(local, alignedTracking, endStart);
   const uncertaintyMs = estimateBlindUncertaintyMs({
     config,
-    channel,
+    channel: receiverChannel,
     tracker,
     trackingCorrelation
   });
