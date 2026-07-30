@@ -12,6 +12,24 @@ The project follows Semantic Versioning.
 - Side-by-side deterministic algorithm comparison
 - Expanded CT saturation and sequence-component models
 
+## [0.4.0] - 2026-07-31
+
+### Added
+
+- Short-horizon waveform estimator for rapid delay-change detection
+- Stability-horizon estimator for persistent alignment validation
+- Parabolic sub-sample refinement around the correlation peak
+- Estimator-agreement gate with FUSED, SHORT, STABILITY, and HOLD outcomes
+- Bounded alpha-beta-style delay trajectory with velocity damping and innovation gating
+- New reason codes for estimator disagreement, held measurements, and excessive trajectory innovation
+- Automated P1 tests for fractional lag, estimator agreement, abrupt delay requests, and incoherent short windows
+
+### Changed
+
+- Alignment uncertainty now includes dual-estimator agreement, peak curvature, and trajectory innovation
+- Smart tracking state now carries correction, velocity, and held-frame history between simulation frames
+- New lag measurements cannot force correction beyond configured slew and search bounds
+
 ## [0.3.0] - 2026-07-31
 
 ### Changed
