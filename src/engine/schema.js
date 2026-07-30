@@ -40,6 +40,12 @@ export function sanitizeConfig(candidate = {}) {
   config.packetAbsoluteAgeMs = number(config.packetAbsoluteAgeMs, defaults.packetAbsoluteAgeMs, 4, 100);
   config.trackWindowMs = number(config.trackWindowMs, defaults.trackWindowMs, 0.2, 8);
   config.trackerMaxSlewMs = number(config.trackerMaxSlewMs, defaults.trackerMaxSlewMs, 0.05, 2);
+  config.minProtectionValidFraction = number(
+    config.minProtectionValidFraction,
+    defaults.minProtectionValidFraction,
+    0.5,
+    1
+  );
   config.minPickupPu = number(config.minPickupPu, defaults.minPickupPu, 0.05, 2);
   config.restraintSlope = number(config.restraintSlope, defaults.restraintSlope, 0.05, 1);
   config.securePickupMultiplier = number(config.securePickupMultiplier, defaults.securePickupMultiplier, 1, 3);
