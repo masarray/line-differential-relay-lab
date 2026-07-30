@@ -1,6 +1,6 @@
 {
   "name": "line-differential-relay-lab",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "description": "Industrial real-time 87L line differential relay algorithm laboratory for communication, time synchronization, secure window, and waveform tracking experiments.",
   "type": "module",
