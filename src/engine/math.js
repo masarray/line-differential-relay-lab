@@ -10,16 +10,28 @@ export function finiteOr(value, fallback = 0) {
   return Number.isFinite(value) ? value : fallback;
 }
 
-export function rms(values, startIndex = 0) {
+export function rms(values, startIndex = 0, endIndex = values.length) {
   let sum = 0;
   let count = 0;
-  for (let index = Math.max(0, startIndex); index < values.length; index += 1) {
+  const upper = Math.min(values.length, Math.max(startIndex, endIndex));
+  for (let index = Math.max(0, startIndex); index < upper; index += 1) {
     const value = values[index];
     if (!Number.isFinite(value)) continue;
     sum += value * value;
     count += 1;
   }
   return count ? Math.sqrt(sum / count) : 0;
+}
+
+export function finitePairFraction(a, b, startIndex = 0, endIndex = Math.min(a.length, b.length)) {
+  const lower = Math.max(0, startIndex);
+  const upper = Math.min(a.length, b.length, Math.max(lower, endIndex));
+  if (upper <= lower) return 0;
+  let valid = 0;
+  for (let index = lower; index < upper; index += 1) {
+    if (Number.isFinite(a[index]) && Number.isFinite(b[index])) valid += 1;
+  }
+  return valid / (upper - lower);
 }
 
 export function mean(values) {
@@ -53,6 +65,10 @@ export function shiftSeries(values, shiftSamples) {
   return shifted;
 }
 
+/**
+ * Fills short gaps for estimator continuity only. The returned values must not
+ * be used as measured protection evidence.
+ */
 export function fillSmallGaps(values, maximumGapSamples) {
   const output = Float64Array.from(values);
   let index = 0;
