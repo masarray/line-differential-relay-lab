@@ -5,7 +5,7 @@ import { installVirtualRelayPanel } from './virtual-relay-panel.js';
  * Pure latching state for the educational virtual relay front panel.
  */
 
-installVirtualRelayPanel();
+if (typeof document !== 'undefined') installVirtualRelayPanel();
 
 export function createRelayLatchState() {
   return Object.freeze({
