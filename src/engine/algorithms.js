@@ -1,6 +1,35 @@
 import { ALGORITHM_MODES } from './constants.js';
 import { clamp, estimateLag, fillSmallGaps, normalizedCorrelation, shiftSeries } from './math.js';
 
+function correlationTimingUncertaintyMs(correlation, frequencyHz) {
+  const coherence = clamp(Math.abs(correlation), 0, 1);
+  const phaseRadians = Math.acos(coherence);
+  return (phaseRadians / (2 * Math.PI * frequencyHz)) * 1000;
+}
+
+function estimateBlindUncertaintyMs({ config, channel, tracker, trackingCorrelation }) {
+  const sampleResolutionMs = 500 / config.sampleRateHz;
+  const rttInstabilityMs = (channel.rttStepMs ?? 0) * 0.35 + (channel.rttJitterMs ?? 0) * 0.5;
+
+  if (config.algorithm === ALGORITHM_MODES.GPS) {
+    return sampleResolutionMs + (channel.timeReferenceUncertaintyMs ?? 0.05);
+  }
+
+  if (config.algorithm === ALGORITHM_MODES.SMART_TRACKING) {
+    const peakDeficitMs = (1 - tracker.peakScore) * config.trackWindowMs;
+    const ambiguityMs = tracker.ambiguity * (1 - tracker.peakScore) * config.trackWindowMs * 0.75;
+    const innovationMs = Math.abs(tracker.requestedCorrectionMs - tracker.acceptedCorrectionMs);
+    const predictionMs = tracker.predictedFraction * config.trackWindowMs;
+    return sampleResolutionMs + peakDeficitMs + ambiguityMs + innovationMs + predictionMs + rttInstabilityMs;
+  }
+
+  return sampleResolutionMs + correlationTimingUncertaintyMs(trackingCorrelation, config.frequencyHz) + rttInstabilityMs;
+}
+
+/**
+ * Aligns remote current using only information available to the algorithm under
+ * test. Ground-truth path delay is intentionally absent from the channel input.
+ */
 export function alignRemote({ local, remoteReceived, config, channel, previousTrackingMs = 0 }) {
   const samplesPerMs = config.sampleRateHz / 1000;
   const pingPongEstimateMs = channel.rttMs / 2;
@@ -10,20 +39,26 @@ export function alignRemote({ local, remoteReceived, config, channel, previousTr
     peakScore: 0,
     ambiguity: 1,
     correlation: 0,
-    predictedFraction: 0
+    predictedFraction: 0,
+    requestedCorrectionMs: 0,
+    acceptedCorrectionMs: 0,
+    atSearchBoundary: false
   };
 
+  // Short interpolation is allowed only inside the tracking estimator.
   const maxGapSamples = Math.max(1, Math.round(config.sampleRateHz / config.frequencyHz / 10));
   const gapFilled = fillSmallGaps(remoteReceived, maxGapSamples);
-  const usableRemote = gapFilled.values;
+  const trackingRemote = gapFilled.values;
   tracker.predictedFraction = gapFilled.predictedCount / Math.max(1, remoteReceived.length);
 
   if (config.algorithm === ALGORITHM_MODES.GPS) {
-    estimatedShiftMs = channel.forwardMs;
+    estimatedShiftMs = channel.timeSyncValid && Number.isFinite(channel.absoluteTimeShiftMs)
+      ? channel.absoluteTimeShiftMs
+      : pingPongEstimateMs;
   }
 
   if (config.algorithm === ALGORITHM_MODES.SMART_TRACKING) {
-    const coarseAligned = shiftSeries(usableRemote, pingPongEstimateMs * samplesPerMs);
+    const coarseAligned = shiftSeries(trackingRemote, pingPongEstimateMs * samplesPerMs);
     const maximumLagSamples = Math.round(config.trackWindowMs * samplesPerMs);
     const searchStart = Math.max(0, local.length - Math.round((config.sampleRateHz / config.frequencyHz) * 2.2));
     const lag = estimateLag(local, coarseAligned, maximumLagSamples, searchStart);
@@ -37,22 +72,35 @@ export function alignRemote({ local, remoteReceived, config, channel, previousTr
       ...tracker,
       peakScore: lag.peakScore,
       ambiguity: lag.ambiguity,
-      correlation: lag.correlation
+      correlation: lag.correlation,
+      requestedCorrectionMs,
+      acceptedCorrectionMs: trackingCorrectionMs,
+      atSearchBoundary: Math.abs(lag.lagSamples) >= Math.max(1, maximumLagSamples)
     };
   }
 
-  const aligned = shiftSeries(usableRemote, estimatedShiftMs * samplesPerMs);
-  const residualEstimateMs = channel.forwardMs + channel.clockErrorMs - estimatedShiftMs;
+  const alignedTracking = shiftSeries(trackingRemote, estimatedShiftMs * samplesPerMs);
+  // Protection evidence is built only from received measured samples. Missing
+  // samples remain NaN and cannot contribute to Idiff, restraint, or trip.
+  const alignedProtection = shiftSeries(remoteReceived, estimatedShiftMs * samplesPerMs);
   const endStart = Math.max(0, local.length - Math.round((config.sampleRateHz / config.frequencyHz) * 1.5));
-  const alignedCorrelation = normalizedCorrelation(local, aligned, endStart);
+  const trackingCorrelation = normalizedCorrelation(local, alignedTracking, endStart);
+  const uncertaintyMs = estimateBlindUncertaintyMs({
+    config,
+    channel,
+    tracker,
+    trackingCorrelation
+  });
 
   return {
-    aligned,
+    aligned: alignedProtection,
+    alignedProtection,
+    alignedTracking,
     estimatedShiftMs,
     pingPongEstimateMs,
     trackingCorrectionMs,
-    residualEstimateMs,
-    alignedCorrelation,
+    uncertaintyMs,
+    trackingCorrelation,
     tracker
   };
 }
