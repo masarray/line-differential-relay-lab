@@ -63,9 +63,16 @@ function arraysToPlain(frame) {
   return {
     ...frame,
     waveforms: Object.fromEntries(
-      Object.entries(frame.waveforms).map(([key, value]) => [key, Array.from(value, (sample) => Number.isFinite(sample) ? sample : null)])
+      Object.entries(frame.waveforms).map(([key, value]) => [
+        key,
+        Array.from(value, (sample) => Number.isFinite(sample) ? sample : null)
+      ])
     )
   };
+}
+
+function emptyTrackerState() {
+  return { initialized: false, correctionMs: 0, velocityMs: 0, heldFrames: 0 };
 }
 
 export class Simulator {
@@ -73,7 +80,7 @@ export class Simulator {
     this.config = sanitizeConfig(initialConfig);
     this.timeSeconds = 0;
     this.frameIndex = 0;
-    this.previousTrackingMs = 0;
+    this.trackerState = emptyTrackerState();
     this.previousRttMs = null;
     this.rttHistory = [];
     this.tripPersistenceMs = 0;
@@ -86,7 +93,7 @@ export class Simulator {
     const previousAlgorithm = this.config.algorithm;
     this.config = sanitizeConfig({ ...this.config, ...patch });
     if (previousAlgorithm !== this.config.algorithm) {
-      this.previousTrackingMs = 0;
+      this.trackerState = emptyTrackerState();
       this.previousRttMs = null;
       this.rttHistory = [];
       this.stateMachine.reset(this.config);
@@ -99,7 +106,7 @@ export class Simulator {
     this.config = sanitizeConfig(config);
     this.timeSeconds = 0;
     this.frameIndex = 0;
-    this.previousTrackingMs = 0;
+    this.trackerState = emptyTrackerState();
     this.previousRttMs = null;
     this.rttHistory = [];
     this.tripPersistenceMs = 0;
@@ -110,11 +117,7 @@ export class Simulator {
   }
 
   pushEvent(code, message) {
-    this.events.unshift({
-      timeSeconds: round(this.timeSeconds, 3),
-      code,
-      message
-    });
+    this.events.unshift({ timeSeconds: round(this.timeSeconds, 3), code, message });
     this.events = this.events.slice(0, 10);
   }
 
@@ -150,9 +153,6 @@ export class Simulator {
     this.rttHistory.push(plantChannel.rttMs);
     this.rttHistory = this.rttHistory.slice(-12);
 
-    // This is the only channel view available to the algorithm under test.
-    // It deliberately excludes true forward delay, true return delay, clock
-    // error, scenario identity, and every other simulation-plant oracle.
     const algorithmChannel = {
       rttMs: plantChannel.rttMs,
       rttStepMs,
@@ -165,8 +165,6 @@ export class Simulator {
         plantChannel.packetAgeMs > this.config.packetAbsoluteAgeMs ||
         validFraction < 0.25,
       timeSyncValid: this.config.gpsSyncValid,
-      // Available only in the absolute-time reference mode, where a common
-      // sample time conveys the measured sample age to the receiver.
       absoluteTimeShiftMs: this.config.gpsSyncValid
         ? plantChannel.forwardMs + plantChannel.clockErrorMs
         : Number.NaN,
@@ -180,21 +178,16 @@ export class Simulator {
       remoteReceived,
       config: this.config,
       channel: algorithmChannel,
-      previousTrackingMs: this.previousTrackingMs
+      trackerState: this.trackerState
     });
-    if (this.config.algorithm === ALGORITHM_MODES.SMART_TRACKING) {
-      this.previousTrackingMs = alignment.trackingCorrectionMs;
-    } else {
-      this.previousTrackingMs = 0;
-    }
+    this.trackerState = this.config.algorithm === ALGORITHM_MODES.SMART_TRACKING
+      ? alignment.trackerState
+      : emptyTrackerState();
 
     const rawIdiff = combineAbsolute(local, remoteReceived);
     const validatedIdiff = combineAbsolute(local, alignment.alignedProtection);
     const irestraint = restraintSeries(local, alignment.alignedProtection);
 
-    // Evaluate a complete cycle before the right-edge buffering gap introduced
-    // by positive time advance. This models relay buffering rather than hiding
-    // missing received samples.
     const estimatedShiftSamples = alignment.estimatedShiftMs * samplesPerMs;
     const rightGuardSamples = Math.max(2, Math.ceil(Math.max(0, estimatedShiftSamples)) + 2);
     const cycleEnd = Math.max(samplesPerCycle, sampleCount - rightGuardSamples);
@@ -203,30 +196,16 @@ export class Simulator {
     const idiffRawRms = rms(rawIdiff, cycleStart, cycleEnd);
     const idiffValidatedRms = rms(validatedIdiff, cycleStart, cycleEnd);
     const irestraintRms = rms(irestraint, cycleStart, cycleEnd);
-    const protectionValidFraction = finitePairFraction(
-      local,
-      alignment.alignedProtection,
-      cycleStart,
-      cycleEnd
-    );
+    const protectionValidFraction = finitePairFraction(local, alignment.alignedProtection, cycleStart, cycleEnd);
     const pickupPu = this.config.minPickupPu + this.config.restraintSlope * irestraintRms;
-
-    const directionCorrelation = normalizedCorrelation(
-      local,
-      alignment.alignedProtection,
-      cycleStart,
-      cycleEnd
-    );
+    const directionCorrelation = normalizedCorrelation(local, alignment.alignedProtection, cycleStart, cycleEnd);
     const faultEvidence = clamp(
       ((directionCorrelation + 1) / 2) * clamp(idiffValidatedRms / Math.max(pickupPu, 0.01), 0, 1.4),
       0,
       1
     );
 
-    const alignmentEvidence = {
-      ...alignment,
-      protectionCorrelation: directionCorrelation
-    };
+    const alignmentEvidence = { ...alignment, protectionCorrelation: directionCorrelation };
     const confidence = calculateConfidence({
       config: this.config,
       channel: algorithmChannel,
@@ -234,20 +213,12 @@ export class Simulator {
       validFraction,
       protectionValidFraction
     });
-
-    const protection = this.stateMachine.update({
-      config: this.config,
-      confidence,
-      deltaMs: scaledDeltaMs
-    });
+    const protection = this.stateMachine.update({ config: this.config, confidence, deltaMs: scaledDeltaMs });
 
     const measuredEvidenceValid = protectionValidFraction >= this.config.minProtectionValidFraction;
     const secureThreshold = pickupPu * this.config.securePickupMultiplier;
     let threshold = pickupPu;
-    let tripAllowed =
-      protection.permission !== 'BLOCKED' &&
-      measuredEvidenceValid &&
-      !confidence.hardInvalid;
+    let tripAllowed = protection.permission !== 'BLOCKED' && measuredEvidenceValid && !confidence.hardInvalid;
     let requiredPersistenceMs = 20;
 
     if (protection.state === PROTECTION_STATES.WATCH) {
@@ -255,20 +226,14 @@ export class Simulator {
       requiredPersistenceMs = 35;
     } else if (protection.state === PROTECTION_STATES.SECURE) {
       threshold = secureThreshold;
-      tripAllowed =
-        tripAllowed &&
-        faultEvidence > 0.78 &&
-        confidence.waveform.score > 55;
+      tripAllowed = tripAllowed && faultEvidence > 0.78 && confidence.waveform.score > 55;
       requiredPersistenceMs = 45;
     } else if (protection.state === PROTECTION_STATES.RECOVERY) {
       tripAllowed = false;
     }
 
-    if (tripAllowed && idiffValidatedRms >= threshold) {
-      this.tripPersistenceMs += scaledDeltaMs;
-    } else {
-      this.tripPersistenceMs = 0;
-    }
+    if (tripAllowed && idiffValidatedRms >= threshold) this.tripPersistenceMs += scaledDeltaMs;
+    else this.tripPersistenceMs = 0;
     const operate = this.tripPersistenceMs >= requiredPersistenceMs;
 
     if (this.lastProtectionState !== protection.state) {
@@ -297,11 +262,7 @@ export class Simulator {
       pickupPu,
       decision
     });
-
-    const groundTruthResidualMs =
-      plantChannel.forwardMs +
-      plantChannel.clockErrorMs -
-      alignment.estimatedShiftMs;
+    const groundTruthResidualMs = plantChannel.forwardMs + plantChannel.clockErrorMs - alignment.estimatedShiftMs;
 
     return arraysToPlain({
       schemaVersion: 1,
@@ -309,13 +270,7 @@ export class Simulator {
       frameIndex: this.frameIndex,
       modeLabel: modeLabel(this.config.algorithm),
       scenarioLabel: scenarioLabel(this.config.scenario),
-      waveforms: {
-        local,
-        remoteReceived,
-        remoteAligned: alignment.alignedProtection,
-        rawIdiff,
-        validatedIdiff
-      },
+      waveforms: { local, remoteReceived, remoteAligned: alignment.alignedProtection, rawIdiff, validatedIdiff },
       channel: {
         forwardMs: round(plantChannel.forwardMs, 3),
         returnMs: round(plantChannel.returnMs, 3),
@@ -332,14 +287,22 @@ export class Simulator {
         pingPongEstimateMs: round(alignment.pingPongEstimateMs, 3),
         trackingCorrectionMs: round(alignment.trackingCorrectionMs, 3),
         uncertaintyMs: round(alignment.uncertaintyMs, 3),
-        // Legacy presentation alias; this is estimated uncertainty, not true residual.
         residualEstimateMs: round(alignment.uncertaintyMs, 3),
         correlation: round(directionCorrelation, 4),
         trackingCorrelation: round(alignment.trackingCorrelation, 4),
         trackerPeak: round(alignment.tracker.peakScore, 4),
         trackerAmbiguity: round(alignment.tracker.ambiguity, 4),
         predictedFraction: round(alignment.tracker.predictedFraction, 4),
-        atSearchBoundary: alignment.tracker.atSearchBoundary
+        atSearchBoundary: alignment.tracker.atSearchBoundary,
+        estimatorAgreementMs: round(alignment.tracker.estimatorAgreementMs, 4),
+        trajectoryInnovationMs: round(alignment.tracker.trajectoryInnovationMs, 4),
+        measurementAccepted: alignment.tracker.measurementAccepted,
+        trackerSource: alignment.tracker.source,
+        shortCorrectionMs: round((alignment.tracker.short.refinedLagSamples ?? alignment.tracker.short.lagSamples) / samplesPerMs, 4),
+        stabilityCorrectionMs: round((alignment.tracker.stable.refinedLagSamples ?? alignment.tracker.stable.lagSamples) / samplesPerMs, 4),
+        shortPeak: round(alignment.tracker.short.peakScore, 4),
+        stabilityPeak: round(alignment.tracker.stable.peakScore, 4),
+        subSampleOffset: round(alignment.tracker.stable.subSampleOffset ?? 0, 4)
       },
       differential: {
         rawRmsPu: round(idiffRawRms, 4),
@@ -353,15 +316,8 @@ export class Simulator {
         measuredEvidenceValid
       },
       confidence,
-      protection: {
-        ...protection,
-        secureRemainingMs: round(protection.secureRemainingMs, 1),
-        decision,
-        operate,
-        tripAllowed
-      },
+      protection: { ...protection, secureRemainingMs: round(protection.secureRemainingMs, 1), decision, operate, tripAllowed },
       diagnostics: {
-        // Diagnostics are deliberately outside all algorithm and protection paths.
         groundTruthResidualMs: round(groundTruthResidualMs, 4),
         trueForwardMs: round(plantChannel.forwardMs, 4),
         trueReturnMs: round(plantChannel.returnMs, 4)
@@ -372,22 +328,16 @@ export class Simulator {
   }
 }
 
-function explainFrame({
-  config,
-  alignment,
-  confidence,
-  protection,
-  protectionValidFraction,
-  idiffValidatedRms,
-  pickupPu,
-  decision
-}) {
+function explainFrame({ config, alignment, confidence, protection, protectionValidFraction, idiffValidatedRms, pickupPu, decision }) {
   const cause = confidence.reasons[0] ?? 'QUALITY_NOMINAL';
   let changed = 'Communication and alignment remain inside the educational quality limits.';
   if (cause === 'RTT_UNSTABLE') changed = 'Measured round-trip delay is changing faster than the trusted timing trajectory.';
   if (cause === 'PACKET_LOSS_BURST') changed = 'A burst of measured remote samples is missing or late.';
   if (cause === 'TIME_SYNC_INVALID') changed = 'The remote absolute time source is not valid.';
   if (cause === 'RTT_ALIGNMENT_DISAGREEMENT') changed = 'Waveform evidence disagrees with the RTT/2 alignment estimate.';
+  if (cause === 'ESTIMATOR_DISAGREEMENT') changed = 'Short-horizon and stability waveform estimators do not agree.';
+  if (cause === 'TRACKING_MEASUREMENT_HELD') changed = 'The tracker rejected the new lag measurement and held its bounded trajectory.';
+  if (cause === 'TRAJECTORY_INNOVATION_HIGH') changed = 'The requested timing correction exceeds the trusted delay trajectory.';
   if (cause === 'ALIGNMENT_UNCERTAIN') changed = 'The remote waveform position has excessive estimator uncertainty.';
   if (cause === 'TRACKING_AMBIGUOUS') changed = 'The waveform tracker found more than one plausible alignment position.';
   if (cause === 'TRACKER_AT_BOUNDARY') changed = 'The best waveform match reached the bounded tracking-search limit.';
@@ -395,7 +345,7 @@ function explainFrame({
   if (cause === 'PACKET_INTEGRITY_FAIL') changed = 'Remote packet integrity failed the hard validity gate.';
 
   const why = config.algorithm === ALGORITHM_MODES.SMART_TRACKING
-    ? `The blind tracker applied ${alignment.trackingCorrectionMs.toFixed(2)} ms with estimated uncertainty ±${alignment.uncertaintyMs.toFixed(2)} ms; measured coverage is ${(protectionValidFraction * 100).toFixed(0)}%.`
+    ? `Short/stability agreement is ${alignment.tracker.estimatorAgreementMs.toFixed(2)} ms; the ${alignment.tracker.source.toLowerCase()} trajectory applied ${alignment.trackingCorrectionMs.toFixed(2)} ms with estimated uncertainty ±${alignment.uncertaintyMs.toFixed(2)} ms.`
     : config.algorithm === ALGORITHM_MODES.GPS
       ? `Common-time alignment reports estimated uncertainty ±${alignment.uncertaintyMs.toFixed(2)} ms.`
       : `RTT/2 provides the coarse alignment while receiver-observable uncertainty is ±${alignment.uncertaintyMs.toFixed(2)} ms.`;
