@@ -44,6 +44,7 @@ The application is intended for technical training, demonstrations, and algorith
 - Forward/return delay, path asymmetry, jitter, packet loss, clock offset, and drift
 - Channel, alignment, and waveform confidence as separate rails
 - Protection state machine with reason codes and secure-window countdown
+- Generic virtual 87L relay with live indicators, LCD mimic, and manual-reset latched TRIP memory
 - Deterministic presets, pause, single-step, reset, seed regeneration, import, and export
 - Canvas rendering and Web Worker simulation with no runtime dependencies
 - Responsive industrial UI optimized for 1280 × 720 and larger laptop screens
