@@ -1,4 +1,4 @@
-const CACHE_NAME = 'line-differential-relay-lab-v5';
+const CACHE_NAME = 'line-differential-relay-lab-v6';
 const ASSETS = [
   './',
   './index.html',
