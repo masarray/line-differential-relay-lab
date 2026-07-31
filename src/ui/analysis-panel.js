@@ -13,7 +13,7 @@ const EVENT_LEVELS = Object.freeze({
 export function classifyRelayEvent(message = '') {
   const text = String(message).toUpperCase();
 
-  if (/OPERATE|TRIP/.test(text)) return EVENT_LEVELS.TRIP;
+  if (/OPERAT|TRIP/.test(text)) return EVENT_LEVELS.TRIP;
   if (/→\s*(NORMAL|RECOVERY)|RESET|INITIALIZED|ALGORITHM CHANGED/.test(text)) return EVENT_LEVELS.INFO;
   if (/→\s*BLOCKED|\bBLOCK\b|INTEGRITY|OVERFLOW|TOO OLD|CONSECUTIVE/.test(text)) return EVENT_LEVELS.ALARM;
   if (/→\s*(WATCH|SECURE)|SEQUENCE GAP|REORDER|DUPLICATE|ROUTE|LOSS|UNRELIABLE|RECOVERY/.test(text)) {
