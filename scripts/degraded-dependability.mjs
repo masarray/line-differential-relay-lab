@@ -1,10 +1,10 @@
 import { mkdir, writeFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
+import { DEFAULT_DEPENDABILITY_OPTIONS } from '../src/validation/degraded-dependability.js';
 import {
-  DEFAULT_DEPENDABILITY_OPTIONS,
-  dependabilityReportMarkdown,
-  runDegradedDependabilityCampaign
-} from '../src/validation/degraded-dependability.js';
+  evidenceQualifiedDependabilityMarkdown,
+  runEvidenceQualifiedDependabilityCampaign
+} from '../src/validation/evidence-qualified-dependability.js';
 
 function readArgument(name, fallback = null) {
   const direct = process.argv.find((argument) => argument.startsWith(`--${name}=`));
@@ -33,14 +33,14 @@ const faultMs = positiveInteger(readArgument('fault-ms'), DEFAULT_DEPENDABILITY_
 const includeCaseDetails = !hasFlag('compact');
 const outputDirectory = resolve(process.cwd(), readArgument('output', 'artifacts/degraded-dependability'));
 
-const report = runDegradedDependabilityCampaign({
+const report = runEvidenceQualifiedDependabilityCampaign({
   cases,
   seed,
   stepMs,
   faultMs,
   includeCaseDetails
 });
-const markdown = dependabilityReportMarkdown(report);
+const markdown = evidenceQualifiedDependabilityMarkdown(report);
 
 await mkdir(outputDirectory, { recursive: true });
 await Promise.all([
@@ -49,12 +49,13 @@ await Promise.all([
 ]);
 
 console.log([
-  'P7 degraded internal-fault dependability complete:',
+  'P7 evidence-qualified internal-fault dependability complete:',
   `${report.summary.totalCases} cases`,
   `eligible=${report.summary.eligibleCases}`,
   `trips=${report.summary.eligibleTrips}`,
   `misses=${report.summary.missedEligibleTrips}`,
-  `inhibited=${report.summary.communicationInhibited}`,
+  `communication-inhibited=${report.summary.communicationInhibited}`,
+  `alignment-inhibited=${report.summary.alignmentInhibited}`,
   `p95=${report.summary.operatingTimeMs.p95 ?? 'n/a'}ms`,
   `invariant-violations=${report.summary.invariantViolationFrames}`
 ].join('  '));
@@ -64,6 +65,8 @@ for (const [profileId, summary] of Object.entries(report.summary.byProfile)) {
     `eligible=${summary.eligibleCases}/${summary.cases}`,
     `trips=${summary.eligibleTrips}`,
     `misses=${summary.missedEligibleTrips}`,
+    `comm-inhibited=${summary.communicationInhibited}`,
+    `align-inhibited=${summary.alignmentInhibited}`,
     `p95=${summary.operatingTimeMs.p95 ?? 'n/a'}ms`,
     `availability=${summary.availabilityPct.mean ?? 'n/a'}%`
   ].join('  '));
