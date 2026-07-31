@@ -64,6 +64,31 @@ test('fixed observation window releases soft degradation after its configured in
   assert.equal(machine.update({ config, confidence, deltaMs: 20 }).state, PROTECTION_STATES.NORMAL);
 });
 
+test('communication-only supervision recovers from channel evidence despite low alignment score', () => {
+  const config = {
+    ...createDefaultConfig(),
+    algorithm: ALGORITHM_MODES.SECURE_WINDOW,
+    securityPolicy: SECURITY_POLICIES.COMMUNICATION_ONLY_SUPERVISED,
+    recoveryValidationMs: 40
+  };
+  const machine = new ProtectionStateMachine(config);
+  machine.state = PROTECTION_STATES.BLOCKED;
+  const confidence = {
+    minimumScore: 18,
+    channel: { score: 92 },
+    alignment: { score: 18 },
+    waveform: { score: 20 },
+    hardInvalid: false,
+    trustedElectricalHold: false,
+    reasons: ['ALIGNMENT_UNCERTAIN']
+  };
+
+  assert.equal(machine.update({ config, confidence, deltaMs: 20 }).state, PROTECTION_STATES.BLOCKED);
+  assert.equal(machine.update({ config, confidence, deltaMs: 20 }).state, PROTECTION_STATES.RECOVERY);
+  assert.equal(machine.update({ config, confidence, deltaMs: 20 }).state, PROTECTION_STATES.RECOVERY);
+  assert.equal(machine.update({ config, confidence, deltaMs: 20 }).state, PROTECTION_STATES.NORMAL);
+});
+
 test('hard-invalid communication remains a veto for fixed observation policy', () => {
   const config = {
     ...createDefaultConfig(),
@@ -76,6 +101,24 @@ test('hard-invalid communication remains a veto for fixed observation policy', (
     hardInvalid: true,
     trustedElectricalHold: false,
     reasons: ['PACKET_INTEGRITY_FAIL']
+  };
+  assert.equal(machine.update({ config, confidence, deltaMs: 20 }).state, PROTECTION_STATES.BLOCKED);
+  assert.equal(machine.snapshot().permission, 'BLOCKED');
+});
+
+test('hard-invalid communication also blocks communication-only supervision', () => {
+  const config = {
+    ...createDefaultConfig(),
+    algorithm: ALGORITHM_MODES.SECURE_WINDOW,
+    securityPolicy: SECURITY_POLICIES.COMMUNICATION_ONLY_SUPERVISED
+  };
+  const machine = new ProtectionStateMachine(config);
+  const confidence = {
+    minimumScore: 95,
+    channel: { score: 95 },
+    hardInvalid: true,
+    trustedElectricalHold: false,
+    reasons: ['RECEIVER_QUEUE_OVERFLOW']
   };
   assert.equal(machine.update({ config, confidence, deltaMs: 20 }).state, PROTECTION_STATES.BLOCKED);
   assert.equal(machine.snapshot().permission, 'BLOCKED');
