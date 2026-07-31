@@ -10,6 +10,8 @@ const EVENT_LEVELS = Object.freeze({
   TRIP: 'TRIP'
 });
 
+const EXPLANATION_SETTLE_MS = 260;
+
 export function classifyRelayEvent(message = '') {
   const text = String(message).toUpperCase();
 
@@ -42,15 +44,17 @@ export function formatRelayEventMessage(message = '') {
 
 const styles = `
 .analysis-panel{
-  grid-template-rows:auto auto minmax(210px,.92fr) minmax(175px,1.08fr)
+  grid-template-rows:auto auto minmax(230px,.98fr) minmax(165px,1.02fr)
 }
 .analysis-panel .reason-section{display:none!important}
 .analysis-panel .cause-effect{
+  min-height:0;
+  display:grid;
+  grid-template-rows:auto repeat(3,64px);
   align-content:start;
   gap:6px;
   padding:8px 9px 9px;
-  overflow:auto;
-  scrollbar-width:thin
+  overflow:hidden
 }
 .analysis-section-heading{
   display:flex;
@@ -66,15 +70,27 @@ const styles = `
   white-space:nowrap
 }
 .analysis-panel .cause-step{
-  min-height:0;
+  height:64px;
+  min-height:64px;
   grid-template-columns:22px minmax(0,1fr);
-  padding:7px 8px
+  padding:7px 8px;
+  overflow:hidden
 }
 .analysis-panel .cause-step p{
   margin-top:3px;
   color:#c8d4d6;
   font-size:10px;
-  line-height:1.42
+  line-height:1.38
+}
+.analysis-panel .cause-step .explanation-source{display:none!important}
+.stable-explanation-text{
+  height:41px;
+  max-height:41px;
+  display:-webkit-box;
+  -webkit-box-orient:vertical;
+  -webkit-line-clamp:3;
+  overflow:hidden;
+  text-overflow:ellipsis
 }
 .analysis-panel .cause-link{display:none}
 .analysis-panel .event-section{
@@ -153,7 +169,7 @@ const styles = `
 #relay-event-log li[data-level="TRIP"]{border-left-color:var(--danger);background:rgba(255,109,115,.065)}
 #relay-event-log li[data-level="TRIP"] .relay-event-level{color:var(--danger);border-color:color-mix(in srgb,var(--danger) 60%,var(--border))}
 @media(max-width:980px){
-  .analysis-panel{grid-template-rows:auto auto minmax(200px,auto) minmax(190px,1fr)}
+  .analysis-panel{grid-template-rows:auto auto minmax(230px,auto) minmax(190px,1fr)}
 }
 `;
 
@@ -172,6 +188,72 @@ function createEventItem(event) {
   message.textContent = formatRelayEventMessage(event.message);
   item.append(time, level, message);
   return item;
+}
+
+function isUrgentExplanation(values) {
+  return values.some((value) => /TRIP|BLOCKED|NOT PERMITTED|HARD.INVALID|INTEGRITY|UNRELIABLE/i.test(value));
+}
+
+function installStableExplanation(causeEffect) {
+  const sources = [
+    document.getElementById('explain-changed'),
+    document.getElementById('explain-why'),
+    document.getElementById('explain-action')
+  ];
+  if (sources.some((source) => !source)) return;
+
+  const visible = sources.map((source) => {
+    source.classList.add('explanation-source');
+    source.hidden = true;
+    source.setAttribute('aria-hidden', 'true');
+
+    const output = document.createElement('p');
+    output.className = 'stable-explanation-text';
+    output.textContent = source.textContent;
+    source.after(output);
+    return output;
+  });
+
+  let committed = sources.map((source) => source.textContent.trim());
+  let candidate = committed;
+  let candidateSignature = committed.join('\u241f');
+  let timer = null;
+
+  const commit = () => {
+    committed = candidate;
+    visible.forEach((output, index) => {
+      output.textContent = committed[index] || 'No additional explanation.';
+    });
+    timer = null;
+  };
+
+  const capture = () => {
+    const next = sources.map((source) => source.textContent.trim());
+    const signature = next.join('\u241f');
+    if (signature === candidateSignature) return;
+
+    candidate = next;
+    candidateSignature = signature;
+    if (timer !== null) window.clearTimeout(timer);
+
+    // Safety-significant state changes are shown immediately. Normal explanatory
+    // wording must remain stable long enough to avoid frame-by-frame flicker.
+    if (isUrgentExplanation(next)) {
+      commit();
+      return;
+    }
+
+    timer = window.setTimeout(commit, EXPLANATION_SETTLE_MS);
+  };
+
+  const observer = new MutationObserver(capture);
+  sources.forEach((source) => observer.observe(source, {
+    childList: true,
+    characterData: true,
+    subtree: true
+  }));
+
+  causeEffect.dataset.explanationStabilized = 'true';
 }
 
 export function installReadableAnalysisPanel() {
@@ -193,6 +275,8 @@ export function installReadableAnalysisPanel() {
     heading.innerHTML = '<span class="section-eyebrow">SYSTEM EXPLANATION</span><small>CAUSE · IMPACT · ACTION</small>';
     causeEffect.prepend(heading);
   }
+
+  if (causeEffect) installStableExplanation(causeEffect);
 
   const eventSection = panel.querySelector('.event-section');
   const eventHeading = eventSection?.querySelector('.section-eyebrow');
