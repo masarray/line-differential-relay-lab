@@ -9,6 +9,10 @@ function number(value, fallback, minimum, maximum) {
   return Number.isFinite(parsed) ? clamp(parsed, minimum, maximum) : fallback;
 }
 
+function integer(value, fallback, minimum, maximum) {
+  return Math.round(number(value, fallback, minimum, maximum));
+}
+
 export function sanitizeConfig(candidate = {}) {
   const defaults = createDefaultConfig();
   const config = { ...defaults, ...candidate };
@@ -24,7 +28,29 @@ export function sanitizeConfig(candidate = {}) {
   config.jitterMs = number(config.jitterMs, defaults.jitterMs, 0, 6);
   config.packetLossPct = number(config.packetLossPct, defaults.packetLossPct, 0, 50);
   config.burstLossPct = number(config.burstLossPct, defaults.burstLossPct, 0, 80);
+  config.burstLengthFrames = integer(config.burstLengthFrames, defaults.burstLengthFrames, 1, 12);
   config.corruptionPct = number(config.corruptionPct, defaults.corruptionPct, 0, 30);
+  config.duplicatePct = number(config.duplicatePct, defaults.duplicatePct, 0, 60);
+  config.reorderPct = number(config.reorderPct, defaults.reorderPct, 0, 60);
+  config.reorderExtraDelayMs = number(config.reorderExtraDelayMs, defaults.reorderExtraDelayMs, 0, 20);
+  config.reorderBufferFrames = integer(config.reorderBufferFrames, defaults.reorderBufferFrames, 0, 12);
+  config.packetSamples = integer(config.packetSamples, defaults.packetSamples, 2, 64);
+  config.packetSerializationMs = number(config.packetSerializationMs, defaults.packetSerializationMs, 0, 5);
+  config.routeChangeAtMs = number(config.routeChangeAtMs, defaults.routeChangeAtMs, 0, 10000);
+  config.routeStepDeltaMs = number(config.routeStepDeltaMs, defaults.routeStepDeltaMs, -12, 12);
+  config.routeRampMs = number(config.routeRampMs, defaults.routeRampMs, 0, 4000);
+  config.maxConsecutiveLossFrames = integer(
+    config.maxConsecutiveLossFrames,
+    defaults.maxConsecutiveLossFrames,
+    1,
+    20
+  );
+  config.maxReceiverQueueFrames = integer(
+    config.maxReceiverQueueFrames,
+    defaults.maxReceiverQueueFrames,
+    1,
+    32
+  );
   config.clockOffsetMs = number(config.clockOffsetMs, defaults.clockOffsetMs, -5, 5);
   config.clockDriftPpm = number(config.clockDriftPpm, defaults.clockDriftPpm, -150, 150);
   config.remoteMagnitudePct = number(config.remoteMagnitudePct, defaults.remoteMagnitudePct, 50, 150);
@@ -47,12 +73,7 @@ export function sanitizeConfig(candidate = {}) {
   config.trackerBeta = number(config.trackerBeta, defaults.trackerBeta, 0, 0.5);
   config.trackerVelocityDamping = number(config.trackerVelocityDamping, defaults.trackerVelocityDamping, 0, 0.95);
   config.trackerMaxVelocityMs = number(config.trackerMaxVelocityMs, defaults.trackerMaxVelocityMs, 0.02, 1);
-  config.minProtectionValidFraction = number(
-    config.minProtectionValidFraction,
-    defaults.minProtectionValidFraction,
-    0.5,
-    1
-  );
+  config.minProtectionValidFraction = number(config.minProtectionValidFraction, defaults.minProtectionValidFraction, 0.5, 1);
   config.minPickupPu = number(config.minPickupPu, defaults.minPickupPu, 0.05, 2);
   config.restraintSlope = number(config.restraintSlope, defaults.restraintSlope, 0.05, 1);
   config.securePickupMultiplier = number(config.securePickupMultiplier, defaults.securePickupMultiplier, 1, 3);

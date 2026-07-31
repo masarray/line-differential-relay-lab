@@ -1,5 +1,5 @@
 import { ALGORITHM_MODES, ELECTRICAL_SCENARIOS, PROTECTION_STATES, createDefaultConfig } from './constants.js';
-import { createChannelSnapshot, sampleTimingJitterMs, shouldDropSample } from './channel-model.js';
+import { createPacketChannelWindow } from './channel-model.js';
 import { alignRemote } from './algorithms.js';
 import { calculateConfidence } from './confidence.js';
 import { clamp, finitePairFraction, normalizedCorrelation, rms, round } from './math.js';
@@ -75,6 +75,17 @@ function emptyTrackerState() {
   return { initialized: false, correctionMs: 0, velocityMs: 0, heldFrames: 0 };
 }
 
+function packetSignature(receiver) {
+  return [
+    receiver.sequenceGapCount,
+    receiver.duplicateFrames,
+    receiver.reorderedFrames,
+    receiver.lateFrames,
+    receiver.queueOverflowFrames,
+    receiver.routeTransitionActive ? 1 : 0
+  ].join(':');
+}
+
 export class Simulator {
   constructor(initialConfig = createDefaultConfig()) {
     this.config = sanitizeConfig(initialConfig);
@@ -87,6 +98,7 @@ export class Simulator {
     this.stateMachine = new ProtectionStateMachine(this.config);
     this.events = [];
     this.lastProtectionState = this.stateMachine.state;
+    this.lastPacketSignature = '';
   }
 
   setConfig(patch) {
@@ -113,6 +125,7 @@ export class Simulator {
     this.events = [];
     this.stateMachine.reset(this.config);
     this.lastProtectionState = this.stateMachine.state;
+    this.lastPacketSignature = '';
     this.pushEvent('RESET', 'Experiment reset');
   }
 
@@ -131,23 +144,26 @@ export class Simulator {
     const sampleCount = Math.max(160, Math.round(samplesPerCycle * this.config.windowCycles));
     const windowSeconds = sampleCount / this.config.sampleRateHz;
     const windowStart = this.timeSeconds - windowSeconds;
-    const plantChannel = createChannelSnapshot(this.config, this.timeSeconds, this.frameIndex);
 
     const local = new Float64Array(sampleCount);
-    const remoteReceived = new Float64Array(sampleCount);
-    remoteReceived.fill(Number.NaN);
-
     for (let index = 0; index < sampleCount; index += 1) {
       const displayTime = windowStart + index / this.config.sampleRateHz;
       local[index] = terminalCurrentAt(displayTime, 'local', this.config);
-      const globalSampleIndex = Math.round(displayTime * this.config.sampleRateHz);
-      if (shouldDropSample(this.config, plantChannel, globalSampleIndex)) continue;
-      const jitterMs = sampleTimingJitterMs(this.config, globalSampleIndex);
-      const sourceTime = displayTime - (plantChannel.forwardMs + plantChannel.clockErrorMs + jitterMs) / 1000;
-      remoteReceived[index] = terminalCurrentAt(sourceTime, 'remote', this.config);
     }
 
+    const transport = createPacketChannelWindow({
+      config: this.config,
+      simulationTimeSeconds: this.timeSeconds,
+      frameIndex: this.frameIndex,
+      windowStartSeconds: windowStart,
+      sampleCount,
+      sampleValueAt: (sourceTimeSeconds) => terminalCurrentAt(sourceTimeSeconds, 'remote', this.config)
+    });
+    const plantChannel = transport.snapshot;
+    const receiver = plantChannel.receiver;
+    const remoteReceived = transport.remoteReceived;
     const validFraction = countFinite(remoteReceived) / remoteReceived.length;
+
     const rttStepMs = this.previousRttMs === null ? 0 : Math.abs(plantChannel.rttMs - this.previousRttMs);
     this.previousRttMs = plantChannel.rttMs;
     this.rttHistory.push(plantChannel.rttMs);
@@ -158,15 +174,21 @@ export class Simulator {
       rttStepMs,
       rttJitterMs: standardDeviation(this.rttHistory),
       packetAgeMs: plantChannel.packetAgeMs,
-      observedLossFraction: 1 - validFraction,
+      observedLossFraction: receiver.observedFrameLossFraction,
       corruption: plantChannel.corruption,
-      hardInvalid:
-        plantChannel.corruption ||
-        plantChannel.packetAgeMs > this.config.packetAbsoluteAgeMs ||
-        validFraction < 0.25,
+      hardInvalid: plantChannel.hardInvalid || validFraction < 0.25,
+      sequenceGapCount: receiver.sequenceGapCount,
+      maxConsecutiveLossFrames: receiver.maxConsecutiveLossFrames,
+      duplicateFrames: receiver.duplicateFrames,
+      reorderedFrames: receiver.reorderedFrames,
+      lateFrames: receiver.lateFrames,
+      queueDepthFrames: receiver.queueDepthFrames,
+      queueOverflowFrames: receiver.queueOverflowFrames,
+      routeTransitionActive: receiver.routeTransitionActive,
+      knownTransportLatencyMs: this.config.packetSerializationMs,
       timeSyncValid: this.config.gpsSyncValid,
       absoluteTimeShiftMs: this.config.gpsSyncValid
-        ? plantChannel.forwardMs + plantChannel.clockErrorMs
+        ? plantChannel.forwardMs + this.config.packetSerializationMs + plantChannel.clockErrorMs
         : Number.NaN,
       timeReferenceUncertaintyMs: this.config.gpsHoldover
         ? 0.05 + Math.abs(this.config.clockDriftPpm) * this.timeSeconds / 1000
@@ -240,6 +262,16 @@ export class Simulator {
       this.pushEvent('STATE_CHANGE', `${this.lastProtectionState} → ${protection.state}`);
       this.lastProtectionState = protection.state;
     }
+
+    const signature = packetSignature(receiver);
+    if (signature !== this.lastPacketSignature) {
+      if (receiver.routeTransitionActive) this.pushEvent('ROUTE_TRANSITION', `One-way route changed by ${plantChannel.routeOffsetMs.toFixed(2)} ms`);
+      if (receiver.sequenceGapCount > 0) this.pushEvent('SEQUENCE_GAP', `${receiver.sequenceGapCount} packet sequence gap(s)`);
+      if (receiver.reorderedFrames > 0) this.pushEvent('PACKET_REORDER', `${receiver.reorderedFrames} reordered frame(s)`);
+      if (receiver.duplicateFrames > 0) this.pushEvent('PACKET_DUPLICATE', `${receiver.duplicateFrames} duplicate frame(s) discarded`);
+      this.lastPacketSignature = signature;
+    }
+
     if (operate && !this.events.some((event) => event.code === 'OPERATE' && this.timeSeconds - event.timeSeconds < 0.2)) {
       this.pushEvent('OPERATE', '87L operating criterion satisfied');
     }
@@ -260,9 +292,11 @@ export class Simulator {
       protectionValidFraction,
       idiffValidatedRms,
       pickupPu,
-      decision
+      decision,
+      receiver
     });
-    const groundTruthResidualMs = plantChannel.forwardMs + plantChannel.clockErrorMs - alignment.estimatedShiftMs;
+    const groundTruthResidualMs =
+      plantChannel.forwardMs + this.config.packetSerializationMs + plantChannel.clockErrorMs - alignment.estimatedShiftMs;
 
     return arraysToPlain({
       schemaVersion: 1,
@@ -278,9 +312,23 @@ export class Simulator {
         rttStepMs: round(algorithmChannel.rttStepMs, 3),
         rttJitterMs: round(algorithmChannel.rttJitterMs, 3),
         packetAgeMs: round(plantChannel.packetAgeMs, 3),
-        lossPct: round((1 - validFraction) * 100, 2),
+        lossPct: round(receiver.observedFrameLossFraction * 100, 2),
         burstActive: plantChannel.burstActive,
-        corruption: plantChannel.corruption
+        corruption: plantChannel.corruption,
+        packetIntervalMs: round(receiver.packetIntervalMs, 3),
+        expectedFrames: receiver.expectedFrames,
+        receivedFrames: receiver.receivedFrames,
+        sequenceGapCount: receiver.sequenceGapCount,
+        maxConsecutiveLossFrames: receiver.maxConsecutiveLossFrames,
+        duplicateFrames: receiver.duplicateFrames,
+        reorderedFrames: receiver.reorderedFrames,
+        lateFrames: receiver.lateFrames,
+        queueDepthFrames: receiver.queueDepthFrames,
+        queueOverflowFrames: receiver.queueOverflowFrames,
+        routeTransitionActive: receiver.routeTransitionActive,
+        routeOffsetMs: round(plantChannel.routeOffsetMs, 3),
+        firstSequence: receiver.firstSequence,
+        lastSequence: receiver.lastSequence
       },
       alignment: {
         estimatedShiftMs: round(alignment.estimatedShiftMs, 3),
@@ -328,11 +376,19 @@ export class Simulator {
   }
 }
 
-function explainFrame({ config, alignment, confidence, protection, protectionValidFraction, idiffValidatedRms, pickupPu, decision }) {
+function explainFrame({ config, alignment, confidence, protection, protectionValidFraction, idiffValidatedRms, pickupPu, decision, receiver }) {
   const cause = confidence.reasons[0] ?? 'QUALITY_NOMINAL';
-  let changed = 'Communication and alignment remain inside the educational quality limits.';
+  let changed = 'Packet sequence, communication timing, and alignment remain inside the educational quality limits.';
+  if (cause === 'PACKET_INTEGRITY_FAIL') changed = 'A received packet failed the integrity gate.';
+  if (cause === 'RECEIVER_QUEUE_OVERFLOW') changed = 'The receiver reorder queue exceeded its bounded capacity.';
+  if (cause === 'REORDER_BUFFER_EXCEEDED') changed = 'An out-of-order packet arrived beyond the permitted reorder depth.';
+  if (cause === 'CONSECUTIVE_FRAME_LOSS') changed = 'Consecutive missing packet frames exceeded the configured safety limit.';
+  if (cause === 'PACKET_SEQUENCE_GAP') changed = 'The receiver detected a discontinuity in packet sequence numbers.';
+  if (cause === 'PACKET_REORDERED') changed = 'Packets arrived out of sequence and required bounded receiver reordering.';
+  if (cause === 'DUPLICATE_FRAME_DISCARDED') changed = 'A duplicate packet was detected and discarded.';
+  if (cause === 'ROUTE_TRANSITION') changed = 'The one-way communication route is changing.';
   if (cause === 'RTT_UNSTABLE') changed = 'Measured round-trip delay is changing faster than the trusted timing trajectory.';
-  if (cause === 'PACKET_LOSS_BURST') changed = 'A burst of measured remote samples is missing or late.';
+  if (cause === 'PACKET_LOSS_BURST') changed = 'A burst of measured remote packets is missing or late.';
   if (cause === 'TIME_SYNC_INVALID') changed = 'The remote absolute time source is not valid.';
   if (cause === 'RTT_ALIGNMENT_DISAGREEMENT') changed = 'Waveform evidence disagrees with the RTT/2 alignment estimate.';
   if (cause === 'ESTIMATOR_DISAGREEMENT') changed = 'Short-horizon and stability waveform estimators do not agree.';
@@ -342,20 +398,20 @@ function explainFrame({ config, alignment, confidence, protection, protectionVal
   if (cause === 'TRACKING_AMBIGUOUS') changed = 'The waveform tracker found more than one plausible alignment position.';
   if (cause === 'TRACKER_AT_BOUNDARY') changed = 'The best waveform match reached the bounded tracking-search limit.';
   if (cause === 'INSUFFICIENT_MEASURED_DATA') changed = 'Too few measured-valid remote samples remain for protection evidence.';
-  if (cause === 'PACKET_INTEGRITY_FAIL') changed = 'Remote packet integrity failed the hard validity gate.';
 
+  const packetContext = `SEQ ${receiver.firstSequence}…${receiver.lastSequence}; gaps ${receiver.sequenceGapCount}, reorder ${receiver.reorderedFrames}, duplicate ${receiver.duplicateFrames}.`;
   const why = config.algorithm === ALGORITHM_MODES.SMART_TRACKING
-    ? `Short/stability agreement is ${alignment.tracker.estimatorAgreementMs.toFixed(2)} ms; the ${alignment.tracker.source.toLowerCase()} trajectory applied ${alignment.trackingCorrectionMs.toFixed(2)} ms with estimated uncertainty ±${alignment.uncertaintyMs.toFixed(2)} ms.`
+    ? `${packetContext} Short/stability agreement is ${alignment.tracker.estimatorAgreementMs.toFixed(2)} ms; the ${alignment.tracker.source.toLowerCase()} trajectory applied ${alignment.trackingCorrectionMs.toFixed(2)} ms with estimated uncertainty ±${alignment.uncertaintyMs.toFixed(2)} ms.`
     : config.algorithm === ALGORITHM_MODES.GPS
-      ? `Common-time alignment reports estimated uncertainty ±${alignment.uncertaintyMs.toFixed(2)} ms.`
-      : `RTT/2 provides the coarse alignment while receiver-observable uncertainty is ±${alignment.uncertaintyMs.toFixed(2)} ms.`;
+      ? `${packetContext} Common-time alignment reports estimated uncertainty ±${alignment.uncertaintyMs.toFixed(2)} ms.`
+      : `${packetContext} RTT/2 provides the coarse alignment while receiver-observable uncertainty is ±${alignment.uncertaintyMs.toFixed(2)} ms.`;
 
   const action = protection.permission === 'BLOCKED'
     ? 'Remote data is not permitted to initiate 87L tripping.'
     : protectionValidFraction < config.minProtectionValidFraction
       ? '87L trip evidence is inhibited until measured-valid sample coverage recovers.'
       : protection.state === PROTECTION_STATES.SECURE
-        ? `87L uses raised security for ${protection.secureRemainingMs.toFixed(0)} ms while evidence is revalidated.`
+        ? `87L uses raised security for ${protection.secureRemainingMs.toFixed(0)} ms while packet and waveform evidence are revalidated.`
         : decision === 'OPERATE'
           ? `Measured-only Idiff ${idiffValidatedRms.toFixed(2)} pu exceeds the active ${pickupPu.toFixed(2)} pu characteristic with sufficient persistence.`
           : '87L remains available under the current protection permission.';

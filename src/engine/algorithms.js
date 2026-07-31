@@ -9,7 +9,15 @@ function receiverChannelView(channel, algorithm) {
     packetAgeMs: Number(channel.packetAgeMs ?? 0),
     corruption: Boolean(channel.corruption),
     hardInvalid: Boolean(channel.hardInvalid),
-    timeSyncValid: Boolean(channel.timeSyncValid)
+    timeSyncValid: Boolean(channel.timeSyncValid),
+    sequenceGapCount: Number(channel.sequenceGapCount ?? 0),
+    maxConsecutiveLossFrames: Number(channel.maxConsecutiveLossFrames ?? 0),
+    duplicateFrames: Number(channel.duplicateFrames ?? 0),
+    reorderedFrames: Number(channel.reorderedFrames ?? 0),
+    lateFrames: Number(channel.lateFrames ?? 0),
+    queueDepthFrames: Number(channel.queueDepthFrames ?? 0),
+    routeTransitionActive: Boolean(channel.routeTransitionActive),
+    knownTransportLatencyMs: Number(channel.knownTransportLatencyMs ?? 0)
   };
   if (algorithm === ALGORITHM_MODES.GPS) {
     view.absoluteTimeShiftMs = Number(channel.absoluteTimeShiftMs);
@@ -26,12 +34,7 @@ function correlationTimingUncertaintyMs(correlation, frequencyHz) {
 
 function normalizeTrackerState(state) {
   if (typeof state === 'number') {
-    return {
-      initialized: true,
-      correctionMs: Number.isFinite(state) ? state : 0,
-      velocityMs: 0,
-      heldFrames: 0
-    };
+    return { initialized: true, correctionMs: Number.isFinite(state) ? state : 0, velocityMs: 0, heldFrames: 0 };
   }
   return {
     initialized: Boolean(state?.initialized),
@@ -126,10 +129,7 @@ function updateTrajectory({ previousState, fusion, config }) {
   }
 
   const innovationMs = fusion.requestedCorrectionMs - predictedCorrectionMs;
-  const innovationGateMs = Math.max(
-    config.trackerAgreementMs * 1.5,
-    config.trackerMaxSlewMs * 1.25
-  );
+  const innovationGateMs = Math.max(config.trackerAgreementMs * 1.5, config.trackerMaxSlewMs * 1.25);
   const gatedInnovationMs = clamp(innovationMs, -innovationGateMs, innovationGateMs);
   const innovationClamped = Math.abs(gatedInnovationMs - innovationMs) > 1e-9;
   const alpha = fusion.agreed ? config.trackerAlpha : config.trackerAlpha * 0.35;
@@ -149,12 +149,7 @@ function updateTrajectory({ previousState, fusion, config }) {
   );
 
   return {
-    state: {
-      initialized: true,
-      correctionMs: acceptedCorrectionMs,
-      velocityMs,
-      heldFrames: 0
-    },
+    state: { initialized: true, correctionMs: acceptedCorrectionMs, velocityMs, heldFrames: 0 },
     predictedCorrectionMs,
     acceptedCorrectionMs,
     innovationMs,
@@ -166,9 +161,14 @@ function updateTrajectory({ previousState, fusion, config }) {
 function estimateBlindUncertaintyMs({ config, channel, tracker, trackingCorrelation }) {
   const sampleResolutionMs = 500 / config.sampleRateHz;
   const rttInstabilityMs = (channel.rttStepMs ?? 0) * 0.35 + (channel.rttJitterMs ?? 0) * 0.5;
+  const packetDisorderMs =
+    (channel.maxConsecutiveLossFrames ?? 0) * 0.08 +
+    (channel.lateFrames ?? 0) * 0.1 +
+    Math.max(0, (channel.queueDepthFrames ?? 0) - 1) * 0.04 +
+    (channel.routeTransitionActive ? config.trackerAgreementMs * 0.35 : 0);
 
   if (config.algorithm === ALGORITHM_MODES.GPS) {
-    return sampleResolutionMs + (channel.timeReferenceUncertaintyMs ?? 0.05);
+    return sampleResolutionMs + (channel.timeReferenceUncertaintyMs ?? 0.05) + packetDisorderMs;
   }
 
   if (config.algorithm === ALGORITHM_MODES.SMART_TRACKING) {
@@ -181,16 +181,13 @@ function estimateBlindUncertaintyMs({ config, channel, tracker, trackingCorrelat
     const predictionMs = tracker.predictedFraction * config.trackWindowMs;
     const holdMs = tracker.measurementAccepted ? 0 : config.trackerAgreementMs;
     return sampleResolutionMs + shortDeficitMs + stableDeficitMs + agreementMs * 0.45 +
-      innovationMs * 0.35 + curvaturePenaltyMs + predictionMs + holdMs + rttInstabilityMs;
+      innovationMs * 0.35 + curvaturePenaltyMs + predictionMs + holdMs + rttInstabilityMs + packetDisorderMs;
   }
 
-  return sampleResolutionMs + correlationTimingUncertaintyMs(trackingCorrelation, config.frequencyHz) + rttInstabilityMs;
+  return sampleResolutionMs + correlationTimingUncertaintyMs(trackingCorrelation, config.frequencyHz) +
+    rttInstabilityMs + packetDisorderMs;
 }
 
-/**
- * Aligns remote current using only information available to the algorithm under
- * test. Ground-truth path delay is intentionally absent from the receiver view.
- */
 export function alignRemote({
   local,
   remoteReceived,
@@ -202,7 +199,7 @@ export function alignRemote({
   const receiverChannel = receiverChannelView(channel, config.algorithm);
   const samplesPerMs = config.sampleRateHz / 1000;
   const samplesPerCycle = config.sampleRateHz / config.frequencyHz;
-  const pingPongEstimateMs = receiverChannel.rttMs / 2;
+  const pingPongEstimateMs = receiverChannel.rttMs / 2 + receiverChannel.knownTransportLatencyMs;
   let estimatedShiftMs = pingPongEstimateMs;
   let trackingCorrectionMs = 0;
   let nextTrackerState = normalizeTrackerState(trackerState);
@@ -274,12 +271,7 @@ export function alignRemote({
   const alignedProtection = shiftSeries(remoteReceived, estimatedShiftMs * samplesPerMs);
   const endStart = Math.max(0, local.length - Math.round(samplesPerCycle * 1.5));
   const trackingCorrelation = normalizedCorrelation(local, alignedTracking, endStart);
-  const uncertaintyMs = estimateBlindUncertaintyMs({
-    config,
-    channel: receiverChannel,
-    tracker,
-    trackingCorrelation
-  });
+  const uncertaintyMs = estimateBlindUncertaintyMs({ config, channel: receiverChannel, tracker, trackingCorrelation });
 
   return {
     aligned: alignedProtection,

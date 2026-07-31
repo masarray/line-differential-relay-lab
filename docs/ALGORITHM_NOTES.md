@@ -72,6 +72,40 @@ The trajectory state carries:
 
 Innovation and correction slew are bounded. Therefore a single correlation peak cannot force an abrupt phase jump, even when it is inside the wider search window.
 
+### P2 packet-driven receiver
+
+Remote samples are transported in frames rather than dropped independently. Each packet has a sequence number, fixed sample payload, transmission completion time, arrival time, integrity outcome, and receiver disposition.
+
+```text
+remote sampled current
+        ↓ packetization
+sequence + sample payload
+        ↓ communication plant
+loss / burst loss / corruption / duplicate / reorder / route change
+        ↓ bounded receiver queue
+accepted measured frames or rejected gaps
+        ↓
+tracking buffer and measured-only protection buffer
+```
+
+The receiver performs these generic security functions:
+
+- detects packet sequence discontinuity,
+- rejects corrupted frames,
+- detects and discards duplicate frames,
+- accepts out-of-order frames only within a bounded reorder depth,
+- rejects late frames beyond the reorder buffer,
+- detects receiver queue overflow,
+- tracks consecutive missing frames,
+- supervises packet age and processing deadline,
+- detects deterministic communication-route transitions.
+
+Fixed packet serialization delay is known to the receiver and is added to the RTT/2 coarse alignment. Variable route delay, queue delay, reordering, and packet loss remain uncertainty evidence; they are not silently treated as known timing.
+
+Packet identity does not become electrical trip evidence. Only samples carried by accepted, measured frames are allowed into Idiff, Irestraint, persistence, and trip logic. Duplicate data cannot replace a missing frame, and frames rejected for corruption, excessive lateness, or queue overflow remain explicit gaps.
+
+Hard-invalid communication includes packet integrity failure, receiver queue overflow, packet age beyond the configured deadline, excessive consecutive frame loss, or critically low measured coverage. Soft packet disorder lowers confidence and moves the supervised algorithms through WATCH, SECURE WINDOW, BLOCKED, and RECOVERY VALIDATION according to persistence.
+
 ### Tracking versus protection buffers
 
 ```text

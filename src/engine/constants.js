@@ -34,7 +34,19 @@ export const DEFAULT_CONFIG = Object.freeze({
   jitterMs: 0.1,
   packetLossPct: 0,
   burstLossPct: 0,
+  burstLengthFrames: 3,
   corruptionPct: 0,
+  duplicatePct: 0,
+  reorderPct: 0,
+  reorderExtraDelayMs: 3,
+  reorderBufferFrames: 2,
+  packetSamples: 8,
+  packetSerializationMs: 0.12,
+  routeChangeAtMs: 800,
+  routeStepDeltaMs: 0,
+  routeRampMs: 0,
+  maxConsecutiveLossFrames: 3,
+  maxReceiverQueueFrames: 8,
   clockOffsetMs: 0,
   clockDriftPpm: 5,
   remoteMagnitudePct: 100,
@@ -67,13 +79,16 @@ export const DEFAULT_CONFIG = Object.freeze({
 export const PRESETS = Object.freeze({
   normal: {
     label: 'Normal through current',
-    purpose: 'Baseline: healthy channel and near-zero Idiff.',
+    purpose: 'Baseline: healthy packet stream and near-zero Idiff.',
     patch: {
       scenario: ELECTRICAL_SCENARIOS.THROUGH,
       asymmetryMs: 0,
       jitterMs: 0.08,
       packetLossPct: 0,
       burstLossPct: 0,
+      duplicatePct: 0,
+      reorderPct: 0,
+      routeStepDeltaMs: 0,
       clockOffsetMs: 0,
       clockDriftPpm: 3,
       remoteMagnitudePct: 100,
@@ -89,19 +104,56 @@ export const PRESETS = Object.freeze({
       asymmetryMs: 4.2,
       jitterMs: 0.35,
       packetLossPct: 0.5,
+      duplicatePct: 0,
+      reorderPct: 0,
+      routeStepDeltaMs: 0,
       clockOffsetMs: 0.15
     }
   },
   jitterBurst: {
-    label: 'Jitter burst',
-    purpose: 'Tests confidence decay, secure ride-through, and blocking.',
+    label: 'Jitter and burst loss',
+    purpose: 'Tests packet gaps, confidence decay, secure ride-through, and blocking.',
     patch: {
       scenario: ELECTRICAL_SCENARIOS.THROUGH,
       asymmetryMs: 1.2,
       jitterMs: 2.1,
       packetLossPct: 2,
-      burstLossPct: 18,
+      burstLossPct: 12,
+      burstLengthFrames: 3,
+      duplicatePct: 0,
+      reorderPct: 0,
+      routeStepDeltaMs: 0,
       clockOffsetMs: 0.2
+    }
+  },
+  packetDisorder: {
+    label: 'Duplicate + reorder',
+    purpose: 'Exercises sequence supervision and bounded receiver reordering.',
+    patch: {
+      scenario: ELECTRICAL_SCENARIOS.THROUGH,
+      jitterMs: 0.35,
+      packetLossPct: 0,
+      burstLossPct: 0,
+      duplicatePct: 18,
+      reorderPct: 24,
+      reorderExtraDelayMs: 4,
+      reorderBufferFrames: 2,
+      routeStepDeltaMs: 0
+    }
+  },
+  routeSwitch: {
+    label: 'Packet route switch',
+    purpose: 'Applies a deterministic one-way route step during the experiment.',
+    patch: {
+      scenario: ELECTRICAL_SCENARIOS.THROUGH,
+      jitterMs: 0.25,
+      packetLossPct: 0,
+      burstLossPct: 0,
+      duplicatePct: 0,
+      reorderPct: 4,
+      routeChangeAtMs: 600,
+      routeStepDeltaMs: 4,
+      routeRampMs: 0
     }
   },
   syncLost: {
@@ -126,6 +178,8 @@ export const PRESETS = Object.freeze({
       jitterMs: 1.1,
       packetLossPct: 2,
       burstLossPct: 4,
+      duplicatePct: 2,
+      reorderPct: 4,
       clockOffsetMs: 0.35
     }
   },
