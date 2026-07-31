@@ -86,6 +86,10 @@ export const DEFAULT_CONFIG = Object.freeze({
   degradedMinWaveformScore: 68,
   degradedMaxUncertaintyMs: 0.85,
   degradedMaxPredictedFraction: 0.08,
+  degradedPickupMultiplier: 1.32,
+  degradedPersistenceMs: 60,
+  degradedMinFaultEvidence: 0.72,
+  degradedMinDirectionCorrelation: 0.18,
   simulationSpeed: 1
 });
 
