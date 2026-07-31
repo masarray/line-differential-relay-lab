@@ -59,7 +59,8 @@ export function calculateConfidence({ config, channel, alignment, validFraction,
   const rawAlignmentScore = clamp(100 - alignment.uncertaintyMs * 32 - trackerPenalty - gpsPenalty, 0, 100);
 
   const coherence = Math.abs(alignment.protectionCorrelation ?? alignment.trackingCorrelation ?? 0);
-  const predictionPenalty = (tracker.predictedFraction ?? 0) * 55;
+  const predictedFraction = Number(tracker.predictedFraction ?? 0);
+  const predictionPenalty = predictedFraction * 55;
   const measuredCoveragePenalty = Math.max(0, 1 - protectionValidFraction) * 135;
   const waveformScore = clamp(coherence * 100 - predictionPenalty - measuredCoveragePenalty, 0, 100);
 
@@ -75,6 +76,31 @@ export function calculateConfidence({ config, channel, alignment, validFraction,
   const alignmentScore = trustedElectricalHold
     ? Math.max(rawAlignmentScore, 84)
     : rawAlignmentScore;
+
+  const hardInvalid = Boolean(
+    channel.hardInvalid ||
+    channelScore < 42 ||
+    protectionValidFraction < 0.25
+  );
+
+  const trajectoryPlausible =
+    measurementAccepted ||
+    trustedElectricalHold ||
+    (
+      agreementMs <= config.trackerAgreementMs * 0.75 &&
+      innovationMs <= config.trackerMaxSlewMs
+    );
+  const degradedEligible = Boolean(
+    config.algorithm === ALGORITHM_MODES.SMART_TRACKING &&
+    !hardInvalid &&
+    protectionValidFraction >= config.minProtectionValidFraction &&
+    channelScore >= config.degradedMinChannelScore &&
+    alignmentScore >= config.degradedMinAlignmentScore &&
+    waveformScore >= config.degradedMinWaveformScore &&
+    alignment.uncertaintyMs <= config.degradedMaxUncertaintyMs &&
+    predictedFraction <= config.degradedMaxPredictedFraction &&
+    trajectoryPlausible
+  );
 
   const reasons = [];
   if (channel.corruption) reasons.push('PACKET_INTEGRITY_FAIL');
@@ -118,19 +144,24 @@ export function calculateConfidence({ config, channel, alignment, validFraction,
   if (protectionValidFraction < config.minProtectionValidFraction) reasons.push('INSUFFICIENT_MEASURED_DATA');
   if (validFraction < 0.92) reasons.push('REMOTE_DATA_GAPS');
   if (channelScore < 42) reasons.push('CHANNEL_UNRELIABLE');
+  if (degradedEligible && Math.min(channelScore, alignmentScore, waveformScore) < 82) {
+    reasons.push('DEGRADED_OPERATION_AVAILABLE');
+  }
   if (reasons.length === 0) reasons.push('QUALITY_NOMINAL');
 
-  const hardInvalid = Boolean(
-    channel.hardInvalid ||
-    channelScore < 42 ||
-    protectionValidFraction < 0.25
-  );
   return {
     channel: { score: channelScore, status: scoreStatus(channelScore) },
     alignment: { score: alignmentScore, status: scoreStatus(alignmentScore) },
     waveform: { score: waveformScore, status: scoreStatus(waveformScore) },
     minimumScore: Math.min(channelScore, alignmentScore, waveformScore),
     hardInvalid,
+    degradedEligible,
+    degradedEvidence: {
+      measuredCoverageValid: protectionValidFraction >= config.minProtectionValidFraction,
+      trajectoryPlausible,
+      uncertaintyValid: alignment.uncertaintyMs <= config.degradedMaxUncertaintyMs,
+      predictionValid: predictedFraction <= config.degradedMaxPredictedFraction
+    },
     trustedElectricalHold,
     reasons
   };
