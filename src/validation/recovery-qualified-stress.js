@@ -7,6 +7,7 @@ import {
 } from './long-horizon-stress.js';
 import { hash32 } from '../engine/random.js';
 
+const EXPOSURE_BASE_DELAY_MS = 8;
 const RECOVERY_QUALIFIED_PHASE_ORDER = Object.freeze([
   'link-flap',
   'partial-recovery',
@@ -47,6 +48,7 @@ function makeCleanRecoveryPhase(source, sign) {
   recovery.durationMs = 460;
   recovery.recoveryOpportunity = true;
   recovery.preRelease = true;
+  recovery.patch.baseDelayMs = EXPOSURE_BASE_DELAY_MS;
   recovery.patch.asymmetryMs = sign * 0.06;
   recovery.patch.jitterMs = 0.035;
   recovery.patch.packetLossPct = 0;
@@ -81,7 +83,11 @@ export function qualifyStressScheduleForRecovery(baseSchedule) {
       ? sign * Math.max(11.2, Math.abs(episode.stressAsymmetryMs))
       : sign * Math.min(4.2, Math.max(2.2, Math.abs(episode.stressAsymmetryMs)));
 
+    // Move to a longer but stable RTT domain during recovery. The later route
+    // event keeps this total RTT approximately constant and changes only the
+    // forward/return distribution, preserving the RTT/2 blind condition.
     deceptiveRecovery.durationMs = Math.max(520, deceptiveRecovery.durationMs);
+    deceptiveRecovery.patch.baseDelayMs = EXPOSURE_BASE_DELAY_MS;
     deceptiveRecovery.patch.asymmetryMs = sign * 0.08;
     deceptiveRecovery.patch.jitterMs = 0.04;
     deceptiveRecovery.patch.packetLossPct = 0;
@@ -95,6 +101,7 @@ export function qualifyStressScheduleForRecovery(baseSchedule) {
     // thresholds. A second healthy burst then gives each policy a fair chance to
     // reopen through its own state machine before the route asymmetry changes.
     jitterStorm.durationMs = Math.min(100, Math.max(60, jitterStorm.durationMs));
+    jitterStorm.patch.baseDelayMs = EXPOSURE_BASE_DELAY_MS;
     jitterStorm.patch.asymmetryMs = moderateAsymmetryMs;
     jitterStorm.patch.jitterMs = Math.min(0.95, Math.max(0.55, jitterStorm.patch.jitterMs));
     jitterStorm.patch.packetLossPct = Math.min(0.25, jitterStorm.patch.packetLossPct ?? 0);
@@ -108,10 +115,11 @@ export function qualifyStressScheduleForRecovery(baseSchedule) {
 
     episode.phases.push(makeCleanRecoveryPhase(deceptiveRecovery, sign));
 
-    // The decisive one-way redistribution is placed immediately after the final
-    // healthy burst and immediately before high current. RTT can remain plausible
-    // although the forward/return split has changed sharply.
+    // The total nominal RTT remains near 2 × base delay. Only the one-way split
+    // changes quickly, so RTT/2 can look internally consistent while the remote
+    // waveform is displaced by roughly half the asymmetry setting.
     routeFlip.durationMs = episode.criticalOpportunity ? 20 : 40;
+    routeFlip.patch.baseDelayMs = EXPOSURE_BASE_DELAY_MS;
     routeFlip.patch.asymmetryMs = releaseAsymmetryMs;
     routeFlip.patch.jitterMs = 0.05;
     routeFlip.patch.packetLossPct = 0;
@@ -124,6 +132,7 @@ export function qualifyStressScheduleForRecovery(baseSchedule) {
     highCurrent.durationMs = episode.criticalOpportunity
       ? Math.max(360, highCurrent.durationMs)
       : Math.max(160, highCurrent.durationMs);
+    highCurrent.patch.baseDelayMs = EXPOSURE_BASE_DELAY_MS;
     highCurrent.patch.asymmetryMs = releaseAsymmetryMs;
     highCurrent.patch.jitterMs = Math.min(0.09, highCurrent.patch.jitterMs);
     highCurrent.patch.packetLossPct = 0;
@@ -185,8 +194,9 @@ export function runRecoveryQualifiedStressCampaign(options = {}) {
       replayCount: replays.length,
       totalEpisodeExposures: replays.length * episodes,
       stepMs: Number(merged.stepMs),
-      methodology: 'Stateful recovery-qualified exposure: link flapping and packet disorder, partial recovery, sustained recovery, severe jitter, a second healthy burst, rapid one-way asymmetry redistribution, then high through/external current.',
+      methodology: 'Stateful recovery-qualified exposure: link flapping and packet disorder, partial recovery, sustained recovery in a stable RTT domain, severe jitter, a second healthy burst, constant-RTT one-way delay redistribution, then high through/external current.',
       recoveryQualification: 'Two clean recovery phases allow generic supervised policies to reopen through their own state machines before the final asymmetry shock.',
+      timingBlindSpot: 'The final stress keeps nominal RTT stable while changing the forward/return delay split, so RTT/2 cannot directly observe the one-way alignment error.',
       accelerationNotice: 'Healthy idle intervals are compressed into equivalent exposure time. Protection timers and estimator state are advanced only through explicitly simulated stress phases.',
       safetyBoundary: 'No operation is forced. Ground truth is evaluator-only and cannot affect alignment, confidence, protection permission, Idiff, persistence, or trip.',
       vendorNotice: 'Profiles are generic research policies and do not reproduce or claim equivalence with any manufacturer relay algorithm.',
