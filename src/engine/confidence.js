@@ -45,7 +45,17 @@ export function calculateConfidence({ config, channel, alignment, validFraction,
   const innovationMs = Math.abs(Number(tracker.trajectoryInnovationMs ?? 0));
   const measurementAccepted = tracker.measurementAccepted !== false;
   const electricalHold = tracker.electricalHold === true;
+  const correctionAgeMs = Math.max(0, Number(tracker.correctionAgeMs ?? 0));
+  const electricalHoldAgeMs = Math.max(0, Number(tracker.electricalHoldAgeMs ?? 0));
+  const correctionFreshForDegraded = correctionAgeMs <= config.degradedMaxCorrectionAgeMs;
+  const correctionFreshForSecure = correctionAgeMs <= config.secureMaxCorrectionAgeMs;
+  const correctionFreshForStrongEvidence = correctionAgeMs <= config.strongEvidenceMaxCorrectionAgeMs;
+  const electricalHoldFresh = electricalHoldAgeMs <= config.maxElectricalHoldAgeMs;
 
+  const freshnessPenalty = config.algorithm === ALGORITHM_MODES.SMART_TRACKING
+    ? clamp(correctionAgeMs / Math.max(1, config.degradedMaxCorrectionAgeMs), 0, 3) * 8 +
+      (correctionFreshForSecure ? 0 : 24)
+    : 0;
   const trackerPenalty = config.algorithm === ALGORITHM_MODES.SMART_TRACKING
     ? (2 - shortPeak - stablePeak) * 18 +
       (2 - shortCurvature - stableCurvature) * 4 +
@@ -53,7 +63,8 @@ export function calculateConfidence({ config, channel, alignment, validFraction,
       Math.max(0, innovationMs - config.trackerMaxSlewMs * 0.5) * 12 +
       (tracker.atSearchBoundary && !electricalHold ? 12 : 0) +
       (!measurementAccepted && !electricalHold ? 18 : 0) +
-      (tracker.innovationClamped ? 7 : 0)
+      (tracker.innovationClamped ? 7 : 0) +
+      freshnessPenalty
     : 0;
   const gpsPenalty = config.algorithm === ALGORITHM_MODES.GPS && !channel.timeSyncValid ? 58 : 0;
   const rawAlignmentScore = clamp(100 - alignment.uncertaintyMs * 32 - trackerPenalty - gpsPenalty, 0, 100);
@@ -66,13 +77,16 @@ export function calculateConfidence({ config, channel, alignment, validFraction,
 
   const trustedElectricalHold =
     electricalHold &&
+    correctionFreshForStrongEvidence &&
+    electricalHoldFresh &&
     channelScore >= 82 &&
     waveformScore >= 82 &&
     protectionValidFraction >= 0.9 &&
     sequenceGapCount === 0 &&
     consecutiveLoss === 0 &&
     lateFrames === 0 &&
-    queueOverflowFrames === 0;
+    queueOverflowFrames === 0 &&
+    !channel.routeTransitionActive;
   const alignmentScore = trustedElectricalHold
     ? Math.max(rawAlignmentScore, 84)
     : rawAlignmentScore;
@@ -82,17 +96,23 @@ export function calculateConfidence({ config, channel, alignment, validFraction,
     channelScore < 42 ||
     protectionValidFraction < 0.25
   );
+  const alignmentExpired =
+    config.algorithm === ALGORITHM_MODES.SMART_TRACKING &&
+    !correctionFreshForSecure;
 
   const trajectoryPlausible =
     measurementAccepted ||
     trustedElectricalHold ||
     (
+      correctionFreshForDegraded &&
       agreementMs <= config.trackerAgreementMs * 0.75 &&
       innovationMs <= config.trackerMaxSlewMs
     );
   const degradedEligible = Boolean(
     config.algorithm === ALGORITHM_MODES.SMART_TRACKING &&
     !hardInvalid &&
+    correctionFreshForDegraded &&
+    !tracker.atSearchBoundary &&
     protectionValidFraction >= config.minProtectionValidFraction &&
     channelScore >= config.degradedMinChannelScore &&
     alignmentScore >= config.degradedMinAlignmentScore &&
@@ -115,7 +135,11 @@ export function calculateConfidence({ config, channel, alignment, validFraction,
   if (channel.routeTransitionActive) reasons.push('ROUTE_TRANSITION');
   if ((channel.rttJitterMs ?? 0) > 0.6 || (channel.rttStepMs ?? 0) > 1) reasons.push('RTT_UNSTABLE');
   if (config.algorithm === ALGORITHM_MODES.SMART_TRACKING && electricalHold) {
+    if (!electricalHoldFresh) reasons.push('ELECTRICAL_HOLD_EXPIRED');
     reasons.push(trustedElectricalHold ? 'ELECTRICAL_TRANSIENT_HOLD' : 'ELECTRICAL_HOLD_UNTRUSTED');
+  }
+  if (config.algorithm === ALGORITHM_MODES.SMART_TRACKING && !correctionFreshForDegraded) {
+    reasons.push(alignmentExpired ? 'ALIGNMENT_CORRECTION_EXPIRED' : 'ALIGNMENT_CORRECTION_STALE');
   }
   if (config.algorithm === ALGORITHM_MODES.SMART_TRACKING && Math.abs(alignment.trackingCorrectionMs) > 0.45) {
     reasons.push('RTT_ALIGNMENT_DISAGREEMENT');
@@ -155,12 +179,16 @@ export function calculateConfidence({ config, channel, alignment, validFraction,
     waveform: { score: waveformScore, status: scoreStatus(waveformScore) },
     minimumScore: Math.min(channelScore, alignmentScore, waveformScore),
     hardInvalid,
+    alignmentExpired,
+    correctionAgeMs,
     degradedEligible,
     degradedEvidence: {
       measuredCoverageValid: protectionValidFraction >= config.minProtectionValidFraction,
       trajectoryPlausible,
       uncertaintyValid: alignment.uncertaintyMs <= config.degradedMaxUncertaintyMs,
-      predictionValid: predictedFraction <= config.degradedMaxPredictedFraction
+      predictionValid: predictedFraction <= config.degradedMaxPredictedFraction,
+      correctionFresh: correctionFreshForDegraded,
+      searchInsideBoundary: !tracker.atSearchBoundary
     },
     trustedElectricalHold,
     reasons
