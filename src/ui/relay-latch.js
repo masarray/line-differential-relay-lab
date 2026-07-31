@@ -1,5 +1,4 @@
 import { installReadableAnalysisPanel } from './analysis-panel.js';
-import { installPresentationWaveformControls } from './presentation-waveform.js';
 import { installRelayExperience } from './relay-experience.js';
 import { installVirtualRelayPanel } from './virtual-relay-panel.js';
 
@@ -12,7 +11,6 @@ if (typeof document !== 'undefined') {
   installVirtualRelayPanel();
   installReadableAnalysisPanel();
   installRelayExperience();
-  installPresentationWaveformControls();
   const alignmentOutput = document.getElementById('alignment-error');
   const alignmentLabel = alignmentOutput?.previousElementSibling;
   if (alignmentLabel) alignmentLabel.textContent = 'ALIGN UNC';
