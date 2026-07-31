@@ -29,6 +29,21 @@ export class ProtectionStateMachine {
       return this.snapshot();
     }
 
+    // A trusted electrical hold means the receiver and measured waveform agree
+    // that timing adaptation must freeze during an electrical polarity event.
+    // It may leave a soft communication block only through WATCH supervision;
+    // it never bypasses a hard-invalid channel and never restores unrestricted
+    // permission directly.
+    if (
+      confidence.trustedElectricalHold &&
+      (this.state === PROTECTION_STATES.BLOCKED || this.state === PROTECTION_STATES.RECOVERY)
+    ) {
+      this.state = PROTECTION_STATES.WATCH;
+      this.goodEvidenceMs = 0;
+      this.secureRemainingMs = config.secureWindowMs;
+      return this.snapshot();
+    }
+
     const score = confidence.minimumScore;
     const good = score >= 80;
     const poor = score < 58;
