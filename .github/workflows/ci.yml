@@ -16,7 +16,7 @@ concurrency:
 jobs:
   validate:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 15
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -29,6 +29,13 @@ jobs:
         run: npm ci
       - name: Validate
         run: npm run validate
+      - name: Upload Monte Carlo smoke report
+        uses: actions/upload-artifact@v7
+        with:
+          name: line-differential-relay-lab-validation-smoke
+          path: artifacts/validation
+          if-no-files-found: error
+          retention-days: 14
       - name: Upload production build
         uses: actions/upload-artifact@v7
         with:
