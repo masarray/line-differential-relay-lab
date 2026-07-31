@@ -6,7 +6,6 @@ const ASSETS = [
   './app.js',
   './favicon.svg',
   './manifest.webmanifest',
-  './social-preview.png',
   './ui/waveform-renderer.js',
   './ui/relay-latch.js',
   './ui/presentation-waveform.js',
