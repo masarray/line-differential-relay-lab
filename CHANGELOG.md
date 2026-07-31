@@ -9,8 +9,29 @@ The project follows Semantic Versioning.
 ### Planned
 
 - COMTRADE import
-- Side-by-side deterministic algorithm comparison
+- Side-by-side deterministic algorithm comparison in the browser
 - Expanded CT saturation and sequence-component models
+
+## [0.6.0] - 2026-07-31
+
+### Added
+
+- Blind deterministic Monte Carlo validation engine with balanced electrical case families
+- Same-case replay across Conventional RTT/2, Communication-supervised RTT/2, and Smart waveform-assisted modes
+- Security metrics for unwanted operations in non-internal-fault cases
+- Dependability metrics that separate eligible internal-fault misses from communication-inhibited cases
+- Trip operating-time, secure/block/recovery timing, availability, alignment, uncertainty, prediction, ambiguity, and packet-disorder metrics
+- Machine-readable JSON and engineering Markdown reports
+- `npm run benchmark` and compact `npm run benchmark:smoke` commands
+- Manual GitHub Actions workflow for configurable full Monte Carlo campaigns
+- P3 regression tests for deterministic generation, replay, aggregation, compact output, and report interpretation
+
+### Changed
+
+- `npm run validate` now runs a deterministic Monte Carlo smoke campaign before the production build
+- CI archives the validation smoke report separately from the GitHub Pages build
+- Production build metadata now reads the package version and license dynamically
+- Generated validation reports are excluded from source control
 
 ## [0.5.0] - 2026-07-31
 

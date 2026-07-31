@@ -1,0 +1,53 @@
+name: Monte Carlo validation
+
+on:
+  workflow_dispatch:
+    inputs:
+      cases:
+        description: Deterministic validation cases
+        required: true
+        default: '500'
+        type: string
+      seed:
+        description: Master campaign seed
+        required: true
+        default: '61850'
+        type: string
+      include_gps:
+        description: Include absolute-time reference mode
+        required: true
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+
+jobs:
+  validate-campaign:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+      - name: Set up Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: npm
+      - name: Install
+        run: npm ci
+      - name: Run blind Monte Carlo campaign
+        shell: bash
+        run: |
+          args=(--cases "${{ inputs.cases }}" --seed "${{ inputs.seed }}" --output artifacts/validation)
+          if [[ "${{ inputs.include_gps }}" == "true" ]]; then
+            args+=(--include-gps)
+          fi
+          npm run benchmark -- "${args[@]}"
+      - name: Upload validation reports
+        uses: actions/upload-artifact@v7
+        with:
+          name: monte-carlo-validation-${{ inputs.cases }}-seed-${{ inputs.seed }}
+          path: artifacts/validation
+          if-no-files-found: error
+          retention-days: 30
