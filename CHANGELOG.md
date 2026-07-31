@@ -8,9 +8,77 @@ The project follows Semantic Versioning.
 
 ### Planned
 
+- Persistent packet transit and receiver state
 - COMTRADE import
 - Side-by-side deterministic algorithm comparison in the browser
 - Expanded CT saturation and sequence-component models
+
+## [0.10.0] - 2026-07-31
+
+### Added
+
+- Alignment-correction freshness watchdog with explicit correction age, electrical-hold age, and last accepted estimator source
+- Separate freshness boundaries for DEGRADED eligibility, SECURE revalidation, trusted electrical hold, and strong internal evidence
+- Runtime safety-invariant guard at the final trip-permission boundary
+- Deterministic invariant diagnostics and relay events
+- Low-quality dual-estimator agreement rejection
+- Adversarial constant-RTT one-way asymmetry sweep across through-current, external-fault, CT-error, frequency, and phase variants
+- Evidence-qualified internal-fault dependability campaign
+- Explicit communication-inhibited, alignment-inhibited, dependability-eligible, and eligible-miss classifications
+- Separate full fault-to-trip, permission-delay, available-at-fault, and qualified operating-latency metrics
+- Combined P7 publication reliability gate and CI artifact
+- P7 engine reliability-freeze documentation
+
+### Changed
+
+- A correction held without a newly accepted lag measurement accumulates age and loses DEGRADED eligibility when stale
+- Smart SECURE remains a revalidation state and cannot recover from expired alignment without new qualified evidence
+- Trusted electrical hold now requires a recent correction, bounded hold duration, stable RTT, no route transition, and strong receiver evidence
+- Internal-fault regression now performs healthy alignment qualification before applying the fault
+- CI archives security, dependability, and reliability reports even when a gate fails
+- Public documentation now separates protection availability delay from differential operating latency
+- Persistent receiver refactoring is deliberately deferred to P8 to avoid changing the communication architecture during publication freeze
+- Package release metadata updated to v0.10.0 and PWA cache updated to v16
+
+### Validation snapshot
+
+- 61 automated tests passed
+- P7 security gate: 8 seeds × 120 stateful episodes, or 960 episode exposures per profile
+- Experimental waveform-assisted profile: 0/8 failed runs, zero unwanted operations, 54.0841% mean availability
+- Baseline communication-supervised and fixed-window counterexamples remained reproducible
+- Evidence-qualified dependability: 54/54 eligible internal faults operated, zero eligible misses
+- 10 additional internal faults were reported as alignment-inhibited rather than hidden as successful availability or counted as fair misses
+- Full fault-to-trip P95 including revalidation: 187 ms
+- Qualified operating-latency P95 after final trusted permission: 60 ms
+- Available-at-fault total P95: 87 ms
+- Runtime safety-invariant violation frames: 0
+- Continuous Integration and CodeQL passed
+
+These finite synthetic results are regression evidence only, not relay certification or field-reliability proof.
+
+## [0.9.0] - 2026-07-31
+
+### Added
+
+- Availability-aware DEGRADED 87L region for Experimental Waveform-Assisted 87L
+- Receiver-observable degraded eligibility using measured coverage, channel, alignment, waveform, uncertainty, prediction, and trajectory evidence
+- Higher pickup, stronger directional evidence, and longer persistence for degraded operation
+- Bounded recovery from hard block through qualified degraded evidence
+- P6 safety-boundary documentation and deterministic regression tests
+
+### Changed
+
+- Smart soft uncertainty no longer escalates to hard block merely because a fixed secure timer expires
+- Smart SECURE is treated as revalidation; non-strong operation is inhibited
+- Hard-invalid communication remains an absolute veto
+- Availability and unwanted-operation security are reported together
+- Package release metadata updated to v0.9.0 and PWA cache updated to v15
+
+### Validation snapshot
+
+- 54 automated tests passed
+- P5 smoke: Experimental Waveform-Assisted 87L had zero failures in 2/2 seeds with 52.7795% availability
+- The initial P6 candidate reopened unwanted operations and was corrected using deterministic replay before release
 
 ## [0.8.0] - 2026-07-31
 

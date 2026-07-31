@@ -24,16 +24,31 @@ test('ideal through current remains stable with low Idiff', () => {
   assert.equal(frame.protection.decision, 'STABLE');
 });
 
-test('internal fault produces an operate decision', () => {
-  const frame = run({
+test('internal fault operates after healthy alignment qualification', () => {
+  const simulator = new Simulator({
     ...createDefaultConfig(),
     algorithm: ALGORITHM_MODES.SMART_TRACKING,
-    scenario: ELECTRICAL_SCENARIOS.INTERNAL_FAULT,
+    scenario: ELECTRICAL_SCENARIOS.THROUGH,
     jitterMs: 0.15,
     asymmetryMs: 0.2
-  }, 20);
-  assert.ok(frame.differential.validatedRmsPu > frame.differential.pickupPu);
-  assert.equal(frame.protection.decision, 'OPERATE');
+  });
+
+  for (let index = 0; index < 12; index += 1) simulator.step(20);
+  simulator.setConfig({ scenario: ELECTRICAL_SCENARIOS.INTERNAL_FAULT });
+
+  let operateFrame = null;
+  let finalFrame = null;
+  for (let index = 0; index < 20; index += 1) {
+    const frame = simulator.step(20);
+    finalFrame = frame;
+    if (frame.protection.operate && !operateFrame) operateFrame = frame;
+  }
+
+  const diagnostic = JSON.stringify({ operateFrame, finalFrame });
+  assert.ok(finalFrame.differential.validatedRmsPu > finalFrame.differential.pickupPu, diagnostic);
+  assert.ok(operateFrame, diagnostic);
+  assert.ok(operateFrame.timeSeconds - 0.24 <= 0.14, diagnostic);
+  assert.deepEqual(operateFrame.protection.safetyInvariantViolations, [], diagnostic);
 });
 
 test('smart tracking reduces false Idiff from path asymmetry', () => {

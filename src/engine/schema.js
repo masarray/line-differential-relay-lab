@@ -97,6 +97,30 @@ export function sanitizeConfig(candidate = {}) {
     0,
     0.35
   );
+  config.degradedMaxCorrectionAgeMs = number(
+    config.degradedMaxCorrectionAgeMs,
+    defaults.degradedMaxCorrectionAgeMs,
+    20,
+    1000
+  );
+  config.secureMaxCorrectionAgeMs = number(
+    config.secureMaxCorrectionAgeMs,
+    defaults.secureMaxCorrectionAgeMs,
+    config.degradedMaxCorrectionAgeMs,
+    2000
+  );
+  config.maxElectricalHoldAgeMs = number(
+    config.maxElectricalHoldAgeMs,
+    defaults.maxElectricalHoldAgeMs,
+    20,
+    500
+  );
+  config.strongEvidenceMaxCorrectionAgeMs = number(
+    config.strongEvidenceMaxCorrectionAgeMs,
+    defaults.strongEvidenceMaxCorrectionAgeMs,
+    10,
+    config.degradedMaxCorrectionAgeMs
+  );
   config.degradedPickupMultiplier = number(config.degradedPickupMultiplier, defaults.degradedPickupMultiplier, 1.05, 2.5);
   config.degradedPersistenceMs = number(config.degradedPersistenceMs, defaults.degradedPersistenceMs, 20, 200);
   config.degradedMinFaultEvidence = number(config.degradedMinFaultEvidence, defaults.degradedMinFaultEvidence, 0.5, 0.98);

@@ -2,202 +2,321 @@
 
 ## Purpose
 
-Validation is designed to test security, dependability, operating time, communication supervision, and blind alignment behaviour under deterministic electrical and communication disturbances.
+Validation tests security, dependability, operating time, communication supervision, blind alignment behavior, protection availability, and runtime safety invariants under deterministic synthetic disturbances.
 
-The simulator is educational and experimental. Passing these checks does not certify a protection relay, reproduce a manufacturer algorithm, or establish suitability for operational trip circuits.
+Passing these checks does not certify a protection relay, reproduce a manufacturer algorithm, establish field reliability, or make the engine suitable for operational trip circuits.
 
 ## Blind evaluation boundary
 
-The algorithm under test receives only receiver-observable information. It cannot read:
+The algorithm under test receives receiver-observable information only:
 
-- true forward or return delay,
-- true clock error,
-- scenario identity,
-- expected trip classification,
-- actual alignment residual,
-- Monte Carlo case family or severity.
+- local measured current;
+- accepted measured remote current;
+- measured RTT and its recent variation;
+- packet identity, integrity, age, loss, duplicate, reorder, and queue evidence;
+- measured-sample coverage;
+- previous estimator and state-machine history.
 
-Ground-truth values are read only after each frame has completed and are used by the validation evaluator to calculate error metrics. They are never passed back into alignment, confidence, protection permission, Idiff, or trip logic.
+It cannot read:
+
+- true forward or return delay;
+- true clock error;
+- scenario identity;
+- expected trip classification;
+- actual alignment residual;
+- Monte Carlo family or severity;
+- evaluator failure labels.
+
+Ground truth is read only after a completed frame. It is used for diagnostic metrics and never fed back into alignment, confidence, protection permission, Idiff, persistence, or trip output.
 
 ## Determinism
 
-Given the same campaign seed, case index, algorithm mode, configuration, and number of simulation steps, the generated case and frame sequence must be repeatable within floating-point tolerance.
+Given the same seed, configuration, algorithm mode, and simulation step count, every electrical case, packet disposition, state transition, and result must be repeatable within floating-point tolerance.
 
-Each Monte Carlo case is replayed with the same plant and communication parameters across:
+Comparator modes receive the same plant and communication schedule.
 
-- Conventional RTT/2,
-- Communication-supervised RTT/2,
-- Smart waveform-assisted alignment.
+## Validation layers
 
-Absolute-time reference mode is optional and excluded from the default comparison because the principal research path does not depend on an external timestamp source.
+### Unit and regression tests
 
-## P3 Monte Carlo campaign
+These cover:
 
-A campaign contains balanced case families:
+- bounded signal shifting and sub-sample lag refinement;
+- packet loss, duplicate rejection, bounded reordering, late frames, and queue overflow;
+- receiver-only algorithm boundaries;
+- tracking-only interpolation;
+- bounded correction, innovation, slew, and velocity;
+- secure, blocked, recovery, and degraded state transitions;
+- trip latch behavior;
+- alignment freshness and electrical-hold age;
+- runtime safety-invariant enforcement;
+- adversarial false-strong-evidence sweeps.
 
-- through-current communication disturbance,
-- external fault,
-- internal fault,
-- CT or waveform error,
+### P3 blind Monte Carlo
+
+Balanced families include:
+
+- through-current communication disturbance;
+- external fault;
+- internal fault;
+- CT or waveform error;
 - dynamic load step.
 
-Each case can combine:
+Cases can combine static path asymmetry, timing jitter, packet disorder, corruption, queue failure, packet-age violation, route changes, clock error, CT saturation, and waveform distortion. Each case is replayed identically across selected generic algorithms.
 
-- static path asymmetry,
-- timing jitter,
-- packet loss and consecutive burst loss,
-- corruption,
-- duplicate frames,
-- out-of-order delivery,
-- reorder-buffer overflow,
-- receiver-queue overflow,
-- packet-age violation,
-- one-way route step or ramp,
-- clock offset and drift,
-- CT saturation and waveform distortion.
+### P5 long-horizon rare-event stress
 
-The standard replay sequence is:
+One simulator state persists across repeated communication episodes:
 
 ```text
-clean warm-up
-      ↓
-electrical event + communication anomaly
-      ↓
-clean communication and through-current recovery
+link flapping
+→ partial recovery
+→ sustained recovery
+→ severe jitter history
+→ second healthy burst
+→ constant-RTT one-way delay redistribution
+→ high through or external-fault current
 ```
 
-This permits measurement of both disturbance response and recovery behaviour.
+This searches for recovery-related unwanted operations that may require repeated exposure. It does not force a trip or inject an internal-fault target.
+
+Security results must always be read together with availability. Zero unwanted operations with zero availability is not considered a successful protection result.
+
+### P7 adversarial strong-evidence audit
+
+The non-internal sweep varies:
+
+- through current, external through fault, and CT error;
+- large positive and negative one-way asymmetry;
+- constant nominal RTT;
+- 49–51 Hz;
+- phase and waveform distortion.
+
+The gate fails on false strong internal evidence, unwanted operation, or runtime safety-invariant violation.
+
+### P7 evidence-qualified internal-fault dependability
+
+Measured coverage alone is not enough to create a fair differential trip expectation. Internal faults are separated into:
+
+#### Communication-inhibited
+
+Measured remote evidence is unavailable or hard-invalid for too much of the fault interval.
+
+#### Alignment-inhibited
+
+Measured remote samples exist, but final trusted trip permission is unavailable for a sufficient consecutive interval. This is explicitly reported as loss of 87L availability caused by alignment uncertainty.
+
+#### Dependability-eligible
+
+Both communication evidence and final trip-permission evidence are qualified. Failure to operate in this category is an eligible missed trip.
+
+The default evaluator requires:
+
+- measured-valid, non-hard-invalid evidence for at least 50% of fault frames;
+- at least three consecutive communication-eligible frames;
+- at least three consecutive final trip-permission frames.
+
+These thresholds are research-evaluator rules, not field relay settings.
+
+### Timing domains
+
+Internal-fault reports separate:
+
+- **full fault-to-trip time** — includes any SECURE, BLOCKED, or recovery delay after fault application;
+- **permission delay** — time before the final continuous trusted permission streak;
+- **qualified operating latency** — time from that final permission streak to operation;
+- **available-at-fault total time** — full timing for cases already in NORMAL or DEGRADED when fault begins.
+
+The complete delay remains visible. The separation prevents slow revalidation from being mislabeled as slow differential persistence.
+
+### P7 combined reliability freeze
+
+The publication gate combines:
+
+- 8 deterministic stress seeds;
+- 120 stateful episodes per seed;
+- 960 episode exposures per policy profile;
+- 64 evidence-qualified internal-fault cases;
+- baseline counterexample preservation;
+- Smart unwanted-operation and availability limits;
+- separate availability and qualified-latency limits;
+- zero runtime safety-invariant violations.
+
+Default acceptance rules:
+
+```text
+Smart failed stress runs                 = 0
+Smart mean availability                  ≥ 35%
+communication-supervised counterexample  ≥ 1 failed run
+fixed-window counterexample              ≥ 1 failed run
+eligible internal-fault misses           = 0
+eligible internal cases                  ≥ 50% of campaign
+pre-fault-available eligible cases       ≥ 25% of campaign
+qualified operating-latency P95          ≤ 80 ms
+available-at-fault full timing P95       ≤ 160 ms
+safety-invariant violation frames        = 0
+```
+
+Full fault-to-trip P95 across every eligible case is reported without being substituted for availability or qualified operating latency. These are portfolio publication gates for this deterministic synthetic model, not certification criteria.
+
+## Runtime safety invariants
+
+The final permission guard checks:
+
+- hard-invalid communication cannot trip;
+- measured-valid evidence is required;
+- BLOCKED permission cannot trip;
+- Smart WATCH operation requires the complete DEGRADED gate;
+- Smart SECURE operation requires trusted strong internal evidence;
+- non-strong Smart operation requires fresh alignment;
+- strong internal evidence requires a trusted electrical hold.
+
+Any violation is included in frame diagnostics, event history, campaign reports, and causes P7 validation failure.
 
 ## Reported metrics
 
 ### Security
 
-- non-internal-fault cases,
-- unwanted-trip count,
-- unwanted-trip rate,
-- late unwanted operations.
-
-An unwanted trip is any operate decision during a through-current, external-fault, CT-error, or load-step replay.
+- unwanted-operation count and rate;
+- failed deterministic runs;
+- operations per 1,000 episodes;
+- near misses;
+- episode and time to first unwanted operation.
 
 ### Dependability
 
-- total internal-fault cases,
-- dependability-eligible internal cases,
-- eligible internal trips,
-- missed eligible trips,
-- communication-inhibited internal cases,
-- trip operating time mean, median, P95, and maximum.
+- total internal cases;
+- communication-inhibited cases;
+- alignment-inhibited cases;
+- dependability-eligible cases;
+- eligible trips and misses;
+- full fault-to-trip and qualified operating-latency distributions.
 
-An internal case is dependability-eligible only when measured-valid, non-hard-invalid remote evidence is available for at least 35% of the event and for at least three consecutive evaluation frames. Cases intentionally prevented from operating by hard validity or insufficient measured coverage are reported separately rather than silently counted as algorithm misses.
+### Availability and supervision
 
-### Supervision and availability
-
-- time to WATCH,
-- time to SECURE WINDOW,
-- time to BLOCKED,
-- time to NORMAL after recovery,
-- percentage of event frames with protection permission available,
-- secure, blocked, and hard-invalid duration.
+- time in NORMAL, DEGRADED, SECURE, BLOCKED, and RECOVERY;
+- permission reopen count;
+- availability percentage;
+- hard-invalid duration;
+- state churn;
+- permission/revalidation delay.
 
 ### Alignment and tracking
 
-- evaluator-only alignment-error RMSE,
-- maximum absolute alignment error,
-- estimated alignment uncertainty,
-- mean and maximum tracking prediction usage,
-- ambiguous-estimator frame count,
-- held-measurement frame count.
+- evaluator-only alignment RMSE;
+- maximum residual;
+- estimated uncertainty;
+- correction age;
+- electrical-hold age;
+- predicted fraction;
+- estimator disagreement, ambiguity, boundary, and held-measurement counts.
 
-Predicted samples remain tracking-only. They never become protection evidence.
+### Receiver evidence
 
-### Packet receiver evidence
+- sequence gaps;
+- consecutive missing frames;
+- duplicates and reordered frames;
+- late frames;
+- queue overflow;
+- packet age.
 
-- maximum sequence-gap count,
-- maximum consecutive lost frames,
-- duplicate and reordered frames,
-- late frames,
-- receiver-queue overflow,
-- maximum reorder depth,
-- maximum packet age.
+## Final P7 snapshot
+
+```text
+61/61 automated tests passed
+8 × 120 security episodes
+960 episode exposures per profile
+Smart failed runs: 0/8
+Smart unwanted operations: 0
+Smart mean availability: 54.0841%
+Dependability-eligible internal faults: 54
+Eligible trips: 54
+Eligible misses: 0
+Alignment-inhibited internal faults: 10
+Full fault-to-trip P95: 187 ms
+Qualified operating-latency P95: 60 ms
+Available-at-fault full P95: 87 ms
+Safety-invariant violation frames: 0
+CI: passed
+CodeQL: passed
+```
+
+These finite results are deterministic synthetic regression evidence only.
 
 ## Commands
 
-Run the default deterministic campaign:
+Full validation:
+
+```bash
+npm run validate
+```
+
+Blind Monte Carlo:
 
 ```bash
 npm run benchmark
-```
-
-Run a larger campaign and keep case-level replay details:
-
-```bash
 npm run benchmark -- --cases 500 --seed 61850
 ```
 
-Run selected modes:
+Long-horizon stress:
 
 ```bash
-npm run benchmark -- --algorithms ping-pong,secure-window,smart-tracking
+npm run benchmark:stress
 ```
 
-Include the optional absolute-time reference:
+Evidence-qualified dependability:
 
 ```bash
-npm run benchmark -- --cases 500 --include-gps
+npm run benchmark:dependability
 ```
 
-Reports are written to:
+Combined reliability freeze:
+
+```bash
+npm run benchmark:reliability
+```
+
+Reports:
 
 ```text
-artifacts/validation/monte-carlo-report.json
-artifacts/validation/monte-carlo-report.md
+artifacts/validation/
+artifacts/long-horizon-stress/
+artifacts/degraded-dependability/
+artifacts/reliability-freeze/
 ```
 
-The JSON file contains machine-readable campaign metadata, summaries, case definitions, and replay outcomes. The Markdown file provides compact engineering tables and interpretation rules.
+CI archives all four report families and the production build.
 
-## Continuous integration
+## Numerical and state checks
 
-`npm run validate` performs:
-
-1. JavaScript syntax checks,
-2. unit and regression tests,
-3. a compact deterministic Monte Carlo smoke campaign,
-4. production static build.
-
-CI uploads both the production site and the smoke validation report as workflow artifacts.
-
-The **Monte Carlo validation** workflow can be launched manually with a requested case count and seed. Its report artifact is retained separately from the deployed application.
-
-## Numerical checks
-
-- Ideal through current produces near-zero validated Idiff.
-- Internal fault produces Idiff above the educational pickup characteristic when valid measured evidence is available.
-- Conventional RTT/2 residual responds to forward/return asymmetry.
-- Smart tracking cannot exceed configured search, innovation, slew, or velocity limits.
-- Packet duplicates cannot replace missing measured evidence.
-- Corrupted, excessively late, or queue-overflowed packets remain rejected gaps.
-- Hard-invalid communication vetoes supervised trip permission.
-
-## State-machine checks
-
-- A hard-invalid packet immediately blocks when policy requires it.
-- Soft degradation enters `WATCH` or `SECURE WINDOW` before `BLOCKED`.
-- Secure-window expiry blocks if confidence does not recover.
-- Recovery requires sustained valid evidence and does not unblock on one good frame.
+- Ideal through current produces low validated Idiff.
+- Internal fault operates after healthy alignment qualification when evidence remains eligible.
+- Conventional RTT/2 responds to forward/return asymmetry.
+- Low-quality estimator agreement is rejected.
+- Correction age increases while lag measurements are held and resets only after accepted evidence.
+- Stale correction cannot qualify DEGRADED operation.
+- Expired correction remains in revalidation.
+- Corrupted, excessively late, or overflowed packets remain rejected gaps.
+- Interpolated samples cannot become protection evidence.
+- Hard-invalid evidence overrides every operate path.
+- Mode changes reset incompatible estimator, state, and persistence history.
 
 ## UX checks
 
-- Full primary workflow remains visible at 1280 × 720 without page scrolling.
-- Status is conveyed by label and shape, not colour alone.
-- Controls are keyboard operable and have visible labels.
-- Reduced-motion preference stops nonessential transitions.
-- Canvas has an accessible textual summary that updates with the simulation.
+- The primary workflow remains visible at 1280 × 720 without long page scrolling.
+- Status is communicated by text and shape, not color alone.
+- Event explanations use stable presentation buffering.
+- Relay event history is readable as TIME / LEVEL / EVENT.
+- Controls are keyboard operable and visibly labeled.
+- Reduced-motion preference suppresses nonessential transitions.
 
-## Remaining validation work
+## Deliberately deferred validation
 
-- independently generated MATLAB or Python reference vectors,
-- COMTRADE replay comparison,
-- hardware-in-the-loop communication impairment tests,
-- larger stratified campaigns with confidence intervals,
-- subject-matter review against documented relay application principles,
-- three-phase and sequence-component electrical models.
+- fully persistent transit queue and receiver network stack;
+- independently generated MATLAB or Python reference vectors;
+- COMTRADE replay comparison;
+- hardware-in-the-loop communication impairment;
+- larger stratified campaigns with confidence intervals;
+- external subject-matter review;
+- three-phase and sequence-component models;
+- embedded worst-case execution-time proof.

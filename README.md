@@ -1,6 +1,6 @@
 # Line Differential Relay Algorithm Laboratory
 
-> A deterministic, one-screen, industrial 87L simulator for teaching and researching how communication quality, packet delivery, time alignment, confidence, and security logic affect line differential protection.
+> A deterministic, one-screen, vendor-neutral 87L simulator for teaching and exploring how packet communication, time alignment, evidence quality, and protection permission interact.
 
 [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](LICENSE)
 [![CI](https://github.com/masarray/line-differential-relay-lab/actions/workflows/ci.yml/badge.svg)](https://github.com/masarray/line-differential-relay-lab/actions/workflows/ci.yml)
@@ -9,36 +9,68 @@
 
 ## Why this project exists
 
-Line differential protection is easy to write as an equation but much harder to understand when remote samples arrive with asymmetric delay, jitter, sequence gaps, duplicates, reordering, queue overflow, corruption, or route changes. This laboratory keeps the complete cause-and-effect chain visible in one laptop viewport:
+Line differential protection is simple to express as an equation but much harder to reason about when remote current samples arrive through a communication path with asymmetric delay, jitter, sequence gaps, duplicates, reordering, queue overflow, corruption, route changes, and unstable recovery.
+
+This laboratory keeps the complete cause-and-effect chain visible in one laptop viewport:
 
 ```text
 communication disturbance
         ↓
-received remote waveform
+received remote waveform and packet evidence
         ↓
-time alignment / validation
+time alignment, trajectory, and freshness validation
         ↓
-raw and validated Idiff
+measured-only Idiff and Irestraint
         ↓
-confidence and protection permission
+channel / alignment / waveform confidence
         ↓
-STABLE / SECURE WINDOW / BLOCKED / OPERATE
+NORMAL → DEGRADED → REVALIDATION → HARD BLOCK
+        ↓
+STABLE or OPERATE
 ```
 
-The application is intended for technical training, demonstrations, and algorithm research. It is not a certified relay or a source of operational settings.
+The application is intended for technical training, demonstrations, practitioner-led R&D, and open engineering discussion. It is not a certified relay, a source of operational settings, or a production trip algorithm.
 
 ![One-screen industrial 87L simulator preview](docs/assets/simulator-preview.png)
 
 ## Algorithm modes
 
-| Mode | Alignment method | Communication security behaviour |
+| Mode | Alignment method | Communication security behavior |
 |---|---|---|
-| Conventional RTT/2 | `RTT / 2` | Baseline behaviour; only hard-invalid data is rejected |
-| Communication-supervised RTT/2 | `RTT / 2` | Watch, bounded ride-through, expiry block, recovery validation |
-| Absolute-time reference | Common sample time | Channel-delay tolerant while time quality remains valid |
-| Smart waveform-assisted | RTT/2 coarse estimate + bounded dual-horizon tracking | Uses waveform evidence and delay trajectory, but hard failures still block 87L |
+| Conventional RTT/2 | `RTT / 2` | Generic baseline; only hard-invalid data is rejected |
+| Communication-supervised RTT/2 | `RTT / 2` | Watch, bounded ride-through, block, and recovery validation |
+| Absolute-time reference | Common sample time | Channel-delay tolerant while time-reference quality remains valid |
+| Experimental waveform-assisted 87L | RTT/2 coarse estimate + bounded dual-horizon tracking | Evidence-aware degraded operation with hard validity vetoes |
 
-The project does not reproduce, benchmark, or claim equivalence with any manufacturer’s proprietary relay algorithm.
+The simulator does not reproduce, benchmark, or claim equivalence with any manufacturer’s proprietary relay algorithm.
+
+## Experimental waveform-assisted path
+
+```text
+RTT/2 coarse estimate
+        ↓
+short-horizon estimator + stability-horizon estimator
+        ↓
+quality and agreement gate
+        ↓
+bounded correction trajectory
+        ↓
+correction freshness watchdog
+        ↓
+measured-only protection evidence
+        ↓
+NORMAL / DEGRADED / REVALIDATION / HARD BLOCK
+```
+
+Important boundaries:
+
+- interpolated samples may support tracking continuity only;
+- Idiff, Irestraint, pickup, persistence, and trip use measured-valid samples only;
+- ground truth is evaluator-only and cannot enter the algorithm;
+- stale alignment cannot qualify degraded operation;
+- Smart SECURE is a revalidation state, not an unrestricted operating state;
+- integrity failure, stale packets, receiver overflow, excessive consecutive loss, and critically low measured coverage remain hard vetoes;
+- runtime safety invariants provide a final defence-in-depth permission guard.
 
 ## Current capabilities
 
@@ -46,15 +78,19 @@ The project does not reproduce, benchmark, or claim equivalence with any manufac
 - Through current, load step, external fault, internal fault, and CT-error scenarios
 - Sequence-numbered packet frames instead of independent sample-drop simulation
 - Path asymmetry, jitter, random and burst loss, corruption, duplicates, reordering, packet age, queue overflow, and route step/ramp
-- Receiver-only smart tracking with short-horizon and stability estimators, sub-sample lag refinement, agreement gating, and bounded delay trajectory
-- Measured-only protection evidence; interpolation remains tracking-only
-- Channel, alignment, and waveform confidence as separate rails
-- Protection state machine with reason codes and secure-window countdown
-- Generic virtual 87L relay with live indicators, LCD mimic, and manual-reset latched TRIP memory
+- Receiver-observable dual-horizon waveform tracking with sub-sample lag refinement
+- Quality-qualified estimator fusion and bounded delay trajectory
+- Correction-age and electrical-hold-age supervision
+- Separate channel, alignment, and waveform confidence rails
+- Availability-aware DEGRADED 87L operation with raised pickup, stronger evidence, and longer persistence
+- Runtime safety-invariant diagnostics
+- Generic virtual 87L relay with readable event log and manual-reset trip latch
 - Deterministic presets, pause, single-step, reset, seed regeneration, import, and export
-- Blind Monte Carlo comparison with security, dependability, operating-time, supervision, availability, packet, and alignment metrics
+- Blind Monte Carlo comparison
+- Stateful long-horizon rare-event communication stress
+- Evidence-qualified internal-fault dependability classification
+- Combined P7 publication reliability gate
 - Canvas rendering and Web Worker simulation with no runtime dependencies
-- Responsive industrial UI optimized for 1280 × 720 and larger laptop screens
 - Automated tests, CodeQL, CI report artifacts, and GitHub Pages deployment
 
 ## Run locally
@@ -74,51 +110,62 @@ Open `http://localhost:4173`.
 npm run validate
 ```
 
-Validation performs syntax checks, regression tests, a compact deterministic Monte Carlo campaign, and the production build. The production site is written to `dist/` and the smoke report to `artifacts/validation/`.
+Validation performs:
 
-## Blind Monte Carlo validation
+1. JavaScript syntax checks;
+2. unit and deterministic regression tests;
+3. compact blind Monte Carlo validation;
+4. compact long-horizon rare-event stress;
+5. evidence-qualified degraded dependability smoke;
+6. the larger P7 reliability-freeze gate;
+7. production static build.
 
-Run the default campaign:
+## Benchmark commands
+
+Blind Monte Carlo:
 
 ```bash
 npm run benchmark
-```
-
-Run a larger deterministic comparison:
-
-```bash
 npm run benchmark -- --cases 500 --seed 61850
 ```
 
-Select modes explicitly:
+Long-horizon communication stress:
 
 ```bash
-npm run benchmark -- --algorithms ping-pong,secure-window,smart-tracking
+npm run benchmark:stress
 ```
 
-The default comparison excludes the absolute-time reference because the principal research path does not depend on an external timestamp source. Add it explicitly with `--include-gps`.
+Evidence-qualified internal-fault dependability:
 
-Reports:
+```bash
+npm run benchmark:dependability
+```
+
+Combined publication reliability gate:
+
+```bash
+npm run benchmark:reliability
+```
+
+Default P7 reliability-freeze budget:
 
 ```text
-artifacts/validation/monte-carlo-report.json
-artifacts/validation/monte-carlo-report.md
+8 stress seeds
+120 stateful episodes per seed
+960 episode exposures per profile
+64 evidence-qualified internal-fault cases
 ```
 
-Each generated case is replayed with the same plant and packet disturbance across all selected modes. Ground truth is read only by the post-frame evaluator and is never fed into alignment, confidence, protection permission, Idiff, or trip logic.
-
-## Deploy to GitHub Pages
-
-1. Create a public repository and push this project to the `main` branch.
-2. Replace repository metadata when publishing a fork.
-3. In **Settings → Pages**, select **GitHub Actions** as the source.
-4. Push to `main`, or run the **Deploy GitHub Pages** workflow manually.
-
-The build uses relative asset URLs, so the same output works at:
+Reports are written under:
 
 ```text
-https://<username>.github.io/line-differential-relay-lab/
+artifacts/validation/
+artifacts/long-horizon-stress/
+artifacts/degraded-dependability/
+artifacts/reliability-freeze/
 ```
+
+Every generated electrical and communication case is deterministic. Comparator modes receive the same plant conditions. Ground truth may be read only after a completed frame by the evaluator and is never fed back into alignment, confidence, protection permission, Idiff, persistence, or trip output.
 
 ## Engineering model
 
@@ -129,23 +176,48 @@ Through current:  I_local ≈ -I_remote  → Idiff ≈ 0
 Internal fault:   I_local and I_remote enter the zone → Idiff rises
 ```
 
-The protection characteristic uses a configurable minimum pickup and percentage-restraint slope. All displayed thresholds are simulation policy defaults, not field recommendations.
+The protection characteristic uses configurable minimum pickup and percentage restraint. All values are simulation policy defaults, not field settings.
 
-See:
+## Evidence-qualified dependability
+
+Internal-fault results are separated into:
+
+- **communication-inhibited** — measured remote evidence is unavailable or hard-invalid;
+- **alignment-inhibited** — measured samples exist, but timing evidence is not sufficiently trustworthy;
+- **dependability-eligible** — both communication and alignment evidence support a fair trip expectation;
+- **eligible missed trip** — a dependability-eligible case did not operate.
+
+This prevents fail-safe revalidation from being presented as successful protection availability, while avoiding an unfair trip expectation from untrusted time alignment.
+
+## Documentation
 
 - [Architecture](docs/ARCHITECTURE.md)
 - [Algorithm notes](docs/ALGORITHM_NOTES.md)
 - [Validation strategy](docs/VALIDATION.md)
+- [P5 long-horizon stress](docs/P5_LONG_HORIZON_STRESS.md)
+- [P6 availability-aware degraded 87L](docs/P6-availability-aware-degraded-87l.md)
+- [P7 engine reliability freeze](docs/P7_ENGINE_RELIABILITY_FREEZE.md)
 - [Product requirements summary](docs/PRD.md)
 - [Roadmap](docs/ROADMAP.md)
 
-## Safety and limitations
+## Known limitations
+
+- Synthetic single-phase equivalent electrical model
+- Simplified CT saturation and transient waveform behavior
+- Deterministic moving-window packet receiver, not a complete production network stack
+- No independent MATLAB/Python reference implementation yet
+- No COMTRADE replay validation yet
+- No hardware-in-the-loop communication test
+- No embedded real-time execution proof
+- Finite simulation evidence rather than field statistics
+
+## Safety
 
 - Do not connect this application to trip circuits or operational protection systems.
-- Do not use the default values as relay settings.
-- Do not infer vendor-specific proprietary behaviour from the educational models.
-- Monte Carlo results are simulator evidence, not protection-relay certification.
-- Validate all protection concepts independently before any practical application.
+- Do not use its default values as relay settings.
+- Do not infer vendor-specific proprietary behavior from the generic comparators.
+- Do not interpret zero failures in a finite campaign as proof of zero field risk.
+- Validate every protection concept independently before practical application.
 
 ## License
 

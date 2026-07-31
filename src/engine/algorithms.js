@@ -1,6 +1,8 @@
 import { ALGORITHM_MODES } from './constants.js';
 import { clamp, estimateLag, fillSmallGaps, normalizedCorrelation, shiftSeries } from './math.js';
 
+const UNINITIALIZED_AGE_MS = 1_000_000;
+
 function receiverChannelView(channel, algorithm) {
   const view = {
     rttMs: Number(channel.rttMs),
@@ -39,15 +41,28 @@ function normalizeTrackerState(state) {
       correctionMs: Number.isFinite(state) ? state : 0,
       velocityMs: 0,
       heldFrames: 0,
-      electricalHoldFrames: 0
+      electricalHoldFrames: 0,
+      correctionAgeMs: 0,
+      electricalHoldAgeMs: 0,
+      lastAcceptedSource: 'LEGACY'
     };
   }
+  const initialized = Boolean(state?.initialized);
   return {
-    initialized: Boolean(state?.initialized),
+    initialized,
     correctionMs: Number.isFinite(state?.correctionMs) ? state.correctionMs : 0,
     velocityMs: Number.isFinite(state?.velocityMs) ? state.velocityMs : 0,
     heldFrames: Number.isFinite(state?.heldFrames) ? state.heldFrames : 0,
-    electricalHoldFrames: Number.isFinite(state?.electricalHoldFrames) ? state.electricalHoldFrames : 0
+    electricalHoldFrames: Number.isFinite(state?.electricalHoldFrames) ? state.electricalHoldFrames : 0,
+    correctionAgeMs: Number.isFinite(state?.correctionAgeMs)
+      ? Math.max(0, state.correctionAgeMs)
+      : initialized ? 0 : UNINITIALIZED_AGE_MS,
+    electricalHoldAgeMs: Number.isFinite(state?.electricalHoldAgeMs)
+      ? Math.max(0, state.electricalHoldAgeMs)
+      : 0,
+    lastAcceptedSource: typeof state?.lastAcceptedSource === 'string'
+      ? state.lastAcceptedSource
+      : initialized ? 'UNKNOWN' : 'NONE'
   };
 }
 
@@ -66,23 +81,34 @@ function fuseEstimators({ shortEstimate, stableEstimate, config, channel, previo
   const signConsistent = Math.sign(shortEstimate.correlation || 0) === Math.sign(stableEstimate.correlation || 0);
   const shortQuality = estimatorQuality(shortEstimate);
   const stableQuality = estimatorQuality(stableEstimate);
-  const agreed = agreementMs <= config.trackerAgreementMs && signConsistent;
+  const geometricallyAgreed = agreementMs <= config.trackerAgreementMs && signConsistent;
+  const agreementQualityValid =
+    shortEstimate.peakScore >= 0.62 &&
+    stableEstimate.peakScore >= 0.68 &&
+    shortQuality >= 0.42 &&
+    stableQuality >= 0.48;
+  const agreed = geometricallyAgreed && agreementQualityValid;
 
+  const priorCorrectionFresh =
+    previousState.initialized &&
+    previousState.correctionAgeMs <= config.strongEvidenceMaxCorrectionAgeMs;
   const channelTrustedForElectricalHold =
     !channel.hardInvalid &&
+    !channel.routeTransitionActive &&
     (channel.sequenceGapCount ?? 0) === 0 &&
     (channel.maxConsecutiveLossFrames ?? 0) === 0 &&
     (channel.lateFrames ?? 0) === 0 &&
     (channel.queueDepthFrames ?? 0) <= 2 &&
-    (channel.rttJitterMs ?? 0) <= 0.55;
+    (channel.rttJitterMs ?? 0) <= 0.55 &&
+    (channel.rttStepMs ?? 0) <= 0.35;
 
-  // Through-current timing evidence is normally anti-correlated after polarity
-  // convention. A coherent transition toward positive correlation can be a real
-  // internal electrical event. Freeze the trusted delay trajectory instead of
-  // allowing the timing tracker to align that event away. The hold is permitted
-  // only while receiver-observable channel evidence remains trustworthy.
+  // A polarity transition can be electrical or can be manufactured by a large
+  // timing error. P7 therefore permits electrical hold only from a recently
+  // accepted trajectory and a receiver-observable channel with no route-change
+  // evidence. The protection layer still applies measured-only directional and
+  // differential checks before any operation is possible.
   const coherentPolarityReversal =
-    previousState.initialized &&
+    priorCorrectionFresh &&
     channelTrustedForElectricalHold &&
     shortEstimate.peakScore >= 0.72 &&
     stableEstimate.peakScore >= 0.78 &&
@@ -148,8 +174,9 @@ function fuseEstimators({ shortEstimate, stableEstimate, config, channel, previo
   };
 }
 
-function updateTrajectory({ previousState, fusion, config }) {
+function updateTrajectory({ previousState, fusion, config, deltaMs }) {
   const state = normalizeTrackerState(previousState);
+  const elapsedMs = Math.max(0, Number(deltaMs ?? 20));
   const predictedCorrectionMs = clamp(
     state.correctionMs + state.velocityMs,
     -config.trackWindowMs,
@@ -159,11 +186,13 @@ function updateTrajectory({ previousState, fusion, config }) {
   if (fusion.electricalHold) {
     return {
       state: {
-        initialized: state.initialized,
+        ...state,
         correctionMs: state.correctionMs,
         velocityMs: 0,
         heldFrames: state.heldFrames + 1,
-        electricalHoldFrames: state.electricalHoldFrames + 1
+        electricalHoldFrames: state.electricalHoldFrames + 1,
+        correctionAgeMs: Math.min(UNINITIALIZED_AGE_MS, state.correctionAgeMs + elapsedMs),
+        electricalHoldAgeMs: state.electricalHoldAgeMs + elapsedMs
       },
       predictedCorrectionMs: state.correctionMs,
       acceptedCorrectionMs: state.correctionMs,
@@ -178,11 +207,13 @@ function updateTrajectory({ previousState, fusion, config }) {
     const velocityMs = state.velocityMs * (1 - config.trackerVelocityDamping);
     return {
       state: {
-        initialized: state.initialized,
+        ...state,
         correctionMs: predictedCorrectionMs,
         velocityMs,
         heldFrames: state.heldFrames + 1,
-        electricalHoldFrames: 0
+        electricalHoldFrames: 0,
+        correctionAgeMs: Math.min(UNINITIALIZED_AGE_MS, state.correctionAgeMs + elapsedMs),
+        electricalHoldAgeMs: 0
       },
       predictedCorrectionMs,
       acceptedCorrectionMs: predictedCorrectionMs,
@@ -219,7 +250,10 @@ function updateTrajectory({ previousState, fusion, config }) {
       correctionMs: acceptedCorrectionMs,
       velocityMs,
       heldFrames: 0,
-      electricalHoldFrames: 0
+      electricalHoldFrames: 0,
+      correctionAgeMs: 0,
+      electricalHoldAgeMs: 0,
+      lastAcceptedSource: fusion.source
     },
     predictedCorrectionMs,
     acceptedCorrectionMs,
@@ -252,8 +286,15 @@ function estimateBlindUncertaintyMs({ config, channel, tracker, trackingCorrelat
       (2 - tracker.short.peakCurvature - tracker.stable.peakCurvature) * sampleResolutionMs;
     const predictionMs = tracker.predictedFraction * config.trackWindowMs;
     const holdMs = tracker.measurementAccepted || tracker.electricalHold ? 0 : config.trackerAgreementMs;
+    const freshnessRatio = tracker.correctionAgeMs / Math.max(1, config.degradedMaxCorrectionAgeMs);
+    const freshnessMs = clamp(freshnessRatio, 0, 2) * 0.28 +
+      (tracker.correctionAgeMs > config.secureMaxCorrectionAgeMs ? 0.4 : 0);
+    const electricalHoldMs = tracker.electricalHold
+      ? clamp(tracker.electricalHoldAgeMs / Math.max(1, config.maxElectricalHoldAgeMs), 0, 2) * 0.18
+      : 0;
     return sampleResolutionMs + shortDeficitMs + stableDeficitMs + agreementMs * 0.45 +
-      innovationMs * 0.35 + curvaturePenaltyMs + predictionMs + holdMs + rttInstabilityMs + packetDisorderMs;
+      innovationMs * 0.35 + curvaturePenaltyMs + predictionMs + holdMs + freshnessMs +
+      electricalHoldMs + rttInstabilityMs + packetDisorderMs;
   }
 
   return sampleResolutionMs + correlationTimingUncertaintyMs(trackingCorrelation, config.frequencyHz) +
@@ -265,6 +306,7 @@ export function alignRemote({
   remoteReceived,
   config,
   channel,
+  deltaMs = 20,
   previousTrackingMs = 0,
   trackerState = previousTrackingMs
 }) {
@@ -288,6 +330,9 @@ export function alignRemote({
     measurementAccepted: true,
     innovationClamped: false,
     electricalHold: false,
+    correctionAgeMs: nextTrackerState.correctionAgeMs,
+    electricalHoldAgeMs: nextTrackerState.electricalHoldAgeMs,
+    lastAcceptedSource: nextTrackerState.lastAcceptedSource,
     source: 'RTT',
     short: { peakScore: 0, ambiguity: 1, peakCurvature: 0, lagSamples: 0, correlation: 0 },
     stable: { peakScore: 0, ambiguity: 1, peakCurvature: 0, lagSamples: 0, correlation: 0 }
@@ -319,7 +364,7 @@ export function alignRemote({
       channel: receiverChannel,
       previousState
     });
-    const trajectory = updateTrajectory({ previousState, fusion, config });
+    const trajectory = updateTrajectory({ previousState, fusion, config, deltaMs });
 
     trackingCorrectionMs = trajectory.acceptedCorrectionMs;
     nextTrackerState = trajectory.state;
@@ -342,6 +387,9 @@ export function alignRemote({
       measurementAccepted: trajectory.measurementAccepted,
       innovationClamped: trajectory.innovationClamped,
       electricalHold: trajectory.electricalHold,
+      correctionAgeMs: nextTrackerState.correctionAgeMs,
+      electricalHoldAgeMs: nextTrackerState.electricalHoldAgeMs,
+      lastAcceptedSource: nextTrackerState.lastAcceptedSource,
       source: fusion.source,
       short: shortEstimate,
       stable: stableEstimate

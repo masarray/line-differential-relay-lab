@@ -30,19 +30,37 @@ jobs:
       - name: Validate
         run: npm run validate
       - name: Upload Monte Carlo smoke report
+        if: always()
         uses: actions/upload-artifact@v7
         with:
           name: line-differential-relay-lab-validation-smoke
           path: artifacts/validation
-          if-no-files-found: error
+          if-no-files-found: warn
           retention-days: 14
       - name: Upload long-horizon stress smoke report
+        if: always()
         uses: actions/upload-artifact@v7
         with:
           name: line-differential-relay-lab-long-horizon-stress-smoke
           path: artifacts/long-horizon-stress
-          if-no-files-found: error
+          if-no-files-found: warn
           retention-days: 14
+      - name: Upload degraded dependability smoke report
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: line-differential-relay-lab-degraded-dependability-smoke
+          path: artifacts/degraded-dependability
+          if-no-files-found: warn
+          retention-days: 14
+      - name: Upload P7 reliability freeze report
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: line-differential-relay-lab-p7-reliability-freeze
+          path: artifacts/reliability-freeze
+          if-no-files-found: warn
+          retention-days: 30
       - name: Upload production build
         uses: actions/upload-artifact@v7
         with:

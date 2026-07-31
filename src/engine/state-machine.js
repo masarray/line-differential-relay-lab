@@ -68,13 +68,14 @@ export class ProtectionStateMachine {
   }
 
   updateSmartAvailabilityAware({ config, confidence, deltaMs }) {
-    const good = confidence.minimumScore >= 82;
+    const good = confidence.minimumScore >= 82 && confidence.alignmentExpired !== true;
     const degraded = confidence.degradedEligible === true;
     const recoveryMs = Math.max(20, Number(config.degradedRecoveryMs ?? 60));
 
     // P4 trusted electrical hold remains a fast supervised path. It cannot
     // reach this method while the channel is hard-invalid because the hard veto
-    // is evaluated first in update().
+    // is evaluated first in update(). P7 additionally requires that the hold
+    // originates from a recent accepted correction.
     if (
       confidence.trustedElectricalHold &&
       (this.state === PROTECTION_STATES.BLOCKED || this.state === PROTECTION_STATES.RECOVERY)
@@ -104,7 +105,7 @@ export class ProtectionStateMachine {
           }
         } else if (degraded) {
           // Continue measured-only supervised operation. This state is allowed
-          // to persist while the explicit degraded evidence gate remains true.
+          // to persist only while the complete degraded evidence gate remains true.
           this.goodEvidenceMs = 0;
           this.secureRemainingMs = config.secureWindowMs;
         } else {
@@ -128,9 +129,8 @@ export class ProtectionStateMachine {
             this.secureRemainingMs = config.secureWindowMs;
           }
         } else {
-          // Soft uncertainty no longer escalates to BLOCKED merely because a
-          // fixed timer expired. Raised security remains active until either
-          // degraded evidence becomes valid or a fundamental hard veto occurs.
+          // Soft uncertainty or an expired correction stays in revalidation.
+          // Only a fundamental hard-invalid receiver condition enters hard block.
           this.goodEvidenceMs = 0;
         }
         break;

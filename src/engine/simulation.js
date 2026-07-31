@@ -9,6 +9,7 @@ import { createPacketChannelWindow } from './channel-model.js';
 import { alignRemote } from './algorithms.js';
 import { calculateConfidence } from './confidence.js';
 import { clamp, finitePairFraction, normalizedCorrelation, rms, round } from './math.js';
+import { guardProtectionPermission } from './safety-invariants.js';
 import { sanitizeConfig } from './schema.js';
 import { terminalCurrentAt } from './signal-model.js';
 import { ProtectionStateMachine } from './state-machine.js';
@@ -83,7 +84,10 @@ function emptyTrackerState() {
     correctionMs: 0,
     velocityMs: 0,
     heldFrames: 0,
-    electricalHoldFrames: 0
+    electricalHoldFrames: 0,
+    correctionAgeMs: 1_000_000,
+    electricalHoldAgeMs: 0,
+    lastAcceptedSource: 'NONE'
   };
 }
 
@@ -111,6 +115,7 @@ export class Simulator {
     this.events = [];
     this.lastProtectionState = this.stateMachine.state;
     this.lastPacketSignature = '';
+    this.lastSafetySignature = '';
   }
 
   setConfig(patch) {
@@ -122,6 +127,7 @@ export class Simulator {
       this.rttHistory = [];
       this.stateMachine.reset(this.config);
       this.tripPersistenceMs = 0;
+      this.lastSafetySignature = '';
       this.pushEvent('ALGORITHM_CHANGED', modeLabel(this.config.algorithm));
     }
   }
@@ -138,6 +144,7 @@ export class Simulator {
     this.stateMachine.reset(this.config);
     this.lastProtectionState = this.stateMachine.state;
     this.lastPacketSignature = '';
+    this.lastSafetySignature = '';
     this.pushEvent('RESET', 'Experiment reset');
   }
 
@@ -212,6 +219,7 @@ export class Simulator {
       remoteReceived,
       config: this.config,
       channel: algorithmChannel,
+      deltaMs: scaledDeltaMs,
       trackerState: this.trackerState
     });
     this.trackerState = this.config.algorithm === ALGORITHM_MODES.SMART_TRACKING
@@ -254,7 +262,7 @@ export class Simulator {
     const electricalHold = this.config.algorithm === ALGORITHM_MODES.SMART_TRACKING && alignment.tracker.electricalHold;
     const directionalEvidenceValid = directionCorrelation > 0.08 && faultEvidence > 0.56;
     const strongInternalEvidence =
-      electricalHold &&
+      confidence.trustedElectricalHold === true &&
       directionCorrelation > 0.34 &&
       operateRatio > 1.35 &&
       protectionValidFraction >= Math.max(this.config.minProtectionValidFraction, 0.9) &&
@@ -300,8 +308,6 @@ export class Simulator {
         tripAllowed = protection.permission !== 'BLOCKED' && measuredEvidenceValid && !confidence.hardInvalid;
         requiredPersistenceMs = 30;
       } else if (this.config.algorithm === ALGORITHM_MODES.SMART_TRACKING) {
-        // Smart SECURE is a revalidation state, not a degraded operating state.
-        // Only the trusted P4 strong-internal path above may operate here.
         threshold = secureThreshold;
         tripAllowed = false;
         requiredPersistenceMs = Math.max(requiredPersistenceMs, this.config.degradedPersistenceMs);
@@ -315,6 +321,17 @@ export class Simulator {
       tripAllowed = false;
     }
 
+    const safetyGuard = guardProtectionPermission({
+      config: this.config,
+      confidence,
+      protection,
+      measuredEvidenceValid,
+      proposedTripAllowed: tripAllowed,
+      strongInternalEvidence,
+      degradedSupervised
+    });
+    tripAllowed = safetyGuard.tripAllowed;
+
     if (tripAllowed && idiffValidatedRms >= threshold) this.tripPersistenceMs += scaledDeltaMs;
     else this.tripPersistenceMs = 0;
     const operate = this.tripPersistenceMs >= requiredPersistenceMs;
@@ -322,6 +339,14 @@ export class Simulator {
     if (this.lastProtectionState !== protection.state) {
       this.pushEvent('STATE_CHANGE', `${this.lastProtectionState} → ${protection.state}`);
       this.lastProtectionState = protection.state;
+    }
+
+    const safetySignature = safetyGuard.violations.join(':');
+    if (safetySignature !== this.lastSafetySignature) {
+      if (safetyGuard.violations.length > 0) {
+        this.pushEvent('SAFETY_INVARIANT', safetyGuard.violations.join(', '));
+      }
+      this.lastSafetySignature = safetySignature;
     }
 
     const signature = packetSignature(receiver);
@@ -398,6 +423,9 @@ export class Simulator {
         estimatedShiftMs: round(alignment.estimatedShiftMs, 3),
         pingPongEstimateMs: round(alignment.pingPongEstimateMs, 3),
         trackingCorrectionMs: round(alignment.trackingCorrectionMs, 3),
+        correctionAgeMs: round(alignment.tracker.correctionAgeMs, 1),
+        electricalHoldAgeMs: round(alignment.tracker.electricalHoldAgeMs, 1),
+        lastAcceptedSource: alignment.tracker.lastAcceptedSource,
         uncertaintyMs: round(alignment.uncertaintyMs, 3),
         residualEstimateMs: round(alignment.uncertaintyMs, 3),
         correlation: round(directionCorrelation, 4),
@@ -409,7 +437,7 @@ export class Simulator {
         estimatorAgreementMs: round(alignment.tracker.estimatorAgreementMs, 4),
         trajectoryInnovationMs: round(alignment.tracker.trajectoryInnovationMs, 4),
         measurementAccepted: alignment.tracker.measurementAccepted,
-        electricalHold: alignment.tracker.electricalHold,
+        electricalHold,
         trackerSource: alignment.tracker.source,
         shortCorrectionMs: round((alignment.tracker.short.refinedLagSamples ?? alignment.tracker.short.lagSamples) / samplesPerMs, 4),
         stabilityCorrectionMs: round((alignment.tracker.stable.refinedLagSamples ?? alignment.tracker.stable.lagSamples) / samplesPerMs, 4),
@@ -434,11 +462,19 @@ export class Simulator {
         measuredEvidenceValid
       },
       confidence,
-      protection: { ...protection, secureRemainingMs: round(protection.secureRemainingMs, 1), decision, operate, tripAllowed },
+      protection: {
+        ...protection,
+        secureRemainingMs: round(protection.secureRemainingMs, 1),
+        decision,
+        operate,
+        tripAllowed,
+        safetyInvariantViolations: safetyGuard.violations
+      },
       diagnostics: {
         groundTruthResidualMs: round(groundTruthResidualMs, 4),
         trueForwardMs: round(plantChannel.forwardMs, 4),
-        trueReturnMs: round(plantChannel.returnMs, 4)
+        trueReturnMs: round(plantChannel.returnMs, 4),
+        safetyInvariantViolations: safetyGuard.violations
       },
       explanation,
       events: [...this.events]
@@ -461,6 +497,9 @@ function explainFrame({ config, alignment, confidence, protection, protectionVal
   if (cause === 'PACKET_LOSS_BURST') changed = 'A burst of measured remote packets is missing or late.';
   if (cause === 'TIME_SYNC_INVALID') changed = 'The remote absolute time source is not valid.';
   if (cause === 'ELECTRICAL_TRANSIENT_HOLD') changed = 'A coherent electrical polarity transition froze timing adaptation at the last trusted correction.';
+  if (cause === 'ELECTRICAL_HOLD_EXPIRED') changed = 'The electrical-transition hold exceeded its bounded trusted duration.';
+  if (cause === 'ALIGNMENT_CORRECTION_STALE') changed = 'The last accepted waveform correction is too old for degraded operation.';
+  if (cause === 'ALIGNMENT_CORRECTION_EXPIRED') changed = 'The last accepted waveform correction expired and requires revalidation.';
   if (cause === 'RTT_ALIGNMENT_DISAGREEMENT') changed = 'Waveform evidence disagrees with the RTT/2 alignment estimate.';
   if (cause === 'ESTIMATOR_DISAGREEMENT') changed = 'Short-horizon and stability waveform estimators do not agree.';
   if (cause === 'TRACKING_MEASUREMENT_HELD') changed = 'The tracker rejected the new lag measurement and held its bounded trajectory.';
@@ -473,7 +512,7 @@ function explainFrame({ config, alignment, confidence, protection, protectionVal
 
   const packetContext = `SEQ ${receiver.firstSequence}…${receiver.lastSequence}; gaps ${receiver.sequenceGapCount}, reorder ${receiver.reorderedFrames}, duplicate ${receiver.duplicateFrames}.`;
   const why = config.algorithm === ALGORITHM_MODES.SMART_TRACKING
-    ? `${packetContext} Short/stability agreement is ${alignment.tracker.estimatorAgreementMs.toFixed(2)} ms; the ${alignment.tracker.source.toLowerCase()} trajectory applied ${alignment.trackingCorrectionMs.toFixed(2)} ms with estimated uncertainty ±${alignment.uncertaintyMs.toFixed(2)} ms.`
+    ? `${packetContext} Short/stability agreement is ${alignment.tracker.estimatorAgreementMs.toFixed(2)} ms; the ${alignment.tracker.source.toLowerCase()} trajectory applied ${alignment.trackingCorrectionMs.toFixed(2)} ms, age ${alignment.tracker.correctionAgeMs.toFixed(0)} ms, with estimated uncertainty ±${alignment.uncertaintyMs.toFixed(2)} ms.`
     : config.algorithm === ALGORITHM_MODES.GPS
       ? `${packetContext} Common-time alignment reports estimated uncertainty ±${alignment.uncertaintyMs.toFixed(2)} ms.`
       : `${packetContext} RTT/2 provides the coarse alignment while receiver-observable uncertainty is ±${alignment.uncertaintyMs.toFixed(2)} ms.`;
@@ -483,12 +522,12 @@ function explainFrame({ config, alignment, confidence, protection, protectionVal
     : protectionValidFraction < config.minProtectionValidFraction
       ? '87L trip evidence is inhibited until measured-valid sample coverage recovers.'
       : strongInternalEvidence
-        ? 'Strong measured directional differential evidence is allowed through the supervised electrical path while timing adaptation remains frozen.'
+        ? 'Strong measured directional differential evidence is allowed only through a recent trusted electrical-hold path.'
         : protection.degraded
-          ? '87L remains available with measured-only evidence, higher pickup, stronger directional qualification, and longer persistence.'
+          ? '87L remains available with measured-only evidence, fresh alignment, higher pickup, stronger directional qualification, and longer persistence.'
           : protection.state === PROTECTION_STATES.SECURE
             ? config.algorithm === ALGORITHM_MODES.SMART_TRACKING
-              ? 'Smart 87L remains in revalidation; tripping is inhibited unless the trusted strong-internal electrical path is present.'
+              ? 'Smart 87L remains in revalidation; tripping is inhibited unless the recent trusted strong-internal path is present.'
               : `87L uses raised security for ${protection.secureRemainingMs.toFixed(0)} ms while packet and waveform evidence are revalidated.`
             : decision === 'OPERATE'
               ? `Measured-only Idiff ${idiffValidatedRms.toFixed(2)} pu exceeds the active ${pickupPu.toFixed(2)} pu characteristic with sufficient persistence.`

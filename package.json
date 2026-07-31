@@ -1,19 +1,22 @@
 {
   "name": "line-differential-relay-lab",
-  "version": "0.9.0",
+  "version": "0.10.0",
   "private": true,
-  "description": "Industrial real-time 87L laboratory with packet-driven anomalies, blind waveform tracking, availability-aware degraded operation, Monte Carlo validation, and accelerated long-horizon stress testing.",
+  "description": "Deterministic 87L research laboratory with packet-driven communication stress, bounded waveform-assisted alignment, runtime safety invariants, and evidence-qualified dependability validation.",
   "type": "module",
   "scripts": {
     "dev": "node scripts/dev-server.mjs",
     "build": "node scripts/build.mjs",
     "test": "node --test",
-    "check": "node --check src/app.js && node --check src/worker/simulation-worker.js && node --check src/engine/simulation.js && node --check src/validation/monte-carlo.js && node --check src/validation/long-horizon-stress.js && node --check src/validation/recovery-qualified-stress.js && node --check scripts/monte-carlo.mjs && node --check scripts/long-horizon-stress.mjs",
+    "check": "node --check src/app.js && node --check src/worker/simulation-worker.js && node --check src/engine/simulation.js && node --check src/engine/safety-invariants.js && node --check src/validation/monte-carlo.js && node --check src/validation/long-horizon-stress.js && node --check src/validation/recovery-qualified-stress.js && node --check src/validation/degraded-dependability.js && node --check src/validation/qualified-operating-timing.js && node --check src/validation/evidence-qualified-dependability.js && node --check src/validation/reliability-freeze.js && node --check scripts/monte-carlo.mjs && node --check scripts/long-horizon-stress.mjs && node --check scripts/degraded-dependability.mjs && node --check scripts/reliability-freeze.mjs",
     "benchmark": "node scripts/monte-carlo.mjs",
     "benchmark:smoke": "node scripts/monte-carlo.mjs --smoke --compact --output artifacts/validation",
     "benchmark:stress": "node scripts/long-horizon-stress.mjs",
     "benchmark:stress:smoke": "node scripts/long-horizon-stress.mjs --smoke --compact --require-baseline-failures --output artifacts/long-horizon-stress",
-    "validate": "npm run check && npm test && npm run benchmark:smoke && npm run benchmark:stress:smoke && npm run build"
+    "benchmark:dependability": "node scripts/degraded-dependability.mjs",
+    "benchmark:dependability:smoke": "node scripts/degraded-dependability.mjs --smoke --compact --require-no-eligible-misses --require-eligible-cases --output artifacts/degraded-dependability",
+    "benchmark:reliability": "node scripts/reliability-freeze.mjs",
+    "validate": "npm run check && npm test && npm run benchmark:smoke && npm run benchmark:stress:smoke && npm run benchmark:dependability:smoke && npm run benchmark:reliability && npm run build"
   },
   "keywords": [
     "87l",
@@ -26,6 +29,7 @@
     "communication-delay",
     "monte-carlo-validation",
     "rare-event-stress",
+    "safety-invariants",
     "github-pages"
   ],
   "author": "Ari / SonkuPik Engineering",
