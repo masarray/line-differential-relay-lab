@@ -97,6 +97,15 @@ export function sanitizeConfig(candidate = {}) {
     0,
     0.35
   );
+  config.degradedPickupMultiplier = number(config.degradedPickupMultiplier, defaults.degradedPickupMultiplier, 1.05, 2.5);
+  config.degradedPersistenceMs = number(config.degradedPersistenceMs, defaults.degradedPersistenceMs, 20, 200);
+  config.degradedMinFaultEvidence = number(config.degradedMinFaultEvidence, defaults.degradedMinFaultEvidence, 0.5, 0.98);
+  config.degradedMinDirectionCorrelation = number(
+    config.degradedMinDirectionCorrelation,
+    defaults.degradedMinDirectionCorrelation,
+    0,
+    0.8
+  );
   config.simulationSpeed = number(config.simulationSpeed, defaults.simulationSpeed, 0.1, 4);
   return config;
 }
