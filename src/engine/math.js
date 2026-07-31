@@ -147,9 +147,34 @@ function parabolicPeakOffset(left, center, right) {
 export function estimateLag(reference, candidate, maximumLagSamples, searchStart = 0, searchEnd = reference.length) {
   const results = [];
   const roundedMaximum = Math.max(0, Math.floor(maximumLagSamples));
+  const requestedStart = Math.max(0, Math.floor(searchStart));
+  const requestedEnd = Math.min(reference.length, candidate.length, Math.ceil(searchEnd));
+  const requestedSpan = Math.max(8, requestedEnd - requestedStart);
+
+  let firstReference = 0;
+  while (firstReference < reference.length && !Number.isFinite(reference[firstReference])) firstReference += 1;
+  let lastReference = reference.length - 1;
+  while (lastReference >= 0 && !Number.isFinite(reference[lastReference])) lastReference -= 1;
+  let firstCandidate = 0;
+  while (firstCandidate < candidate.length && !Number.isFinite(candidate[firstCandidate])) firstCandidate += 1;
+  let lastCandidate = candidate.length - 1;
+  while (lastCandidate >= 0 && !Number.isFinite(candidate[lastCandidate])) lastCandidate -= 1;
+
+  // Compare every lag over the same measured overlap. When coarse transport
+  // alignment consumes the right edge, preserve the requested horizon length by
+  // moving the search window left rather than scoring most lags against NaNs.
+  const commonEnd = Math.min(requestedEnd, lastReference + 1, lastCandidate - roundedMaximum + 1);
+  const commonCommonStart = Math.max(
+    firstReference,
+    firstCandidate + roundedMaximum,
+    commonEnd - requestedSpan
+  );
+  const effectiveStart = commonEnd - commonCommonStart >= 8 ? commonCommonStart : requestedStart;
+  const effectiveEnd = commonEnd - commonCommonStart >= 8 ? commonEnd : requestedEnd;
+
   for (let lag = -roundedMaximum; lag <= roundedMaximum; lag += 1) {
     const shifted = shiftSeries(candidate, lag);
-    const correlation = normalizedCorrelation(reference, shifted, searchStart, searchEnd);
+    const correlation = normalizedCorrelation(reference, shifted, effectiveStart, effectiveEnd);
     results.push({ lag, correlation, score: Math.abs(correlation) });
   }
 
@@ -165,8 +190,8 @@ export function estimateLag(reference, candidate, maximumLagSamples, searchStart
   const refinedCorrelation = normalizedCorrelation(
     reference,
     shiftSeries(candidate, refinedLag),
-    searchStart,
-    searchEnd
+    effectiveStart,
+    effectiveEnd
   );
 
   const exclusionRadius = Math.max(2, Math.round(roundedMaximum * 0.2));
@@ -182,7 +207,10 @@ export function estimateLag(reference, candidate, maximumLagSamples, searchStart
     correlation: refinedCorrelation,
     peakScore: Math.abs(refinedCorrelation),
     peakCurvature,
-    ambiguity: clamp(runnerUp.score / Math.max(best.score, 1e-9), 0, 1)
+    ambiguity: clamp(runnerUp.score / Math.max(best.score, 1e-9), 0, 1),
+    searchStart: effectiveStart,
+    searchEnd: effectiveEnd,
+    commonSampleSpan: Math.max(0, effectiveEnd - effectiveStart)
   };
 }
 
