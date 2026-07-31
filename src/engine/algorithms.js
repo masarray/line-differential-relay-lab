@@ -81,7 +81,13 @@ function fuseEstimators({ shortEstimate, stableEstimate, config, channel, previo
   const signConsistent = Math.sign(shortEstimate.correlation || 0) === Math.sign(stableEstimate.correlation || 0);
   const shortQuality = estimatorQuality(shortEstimate);
   const stableQuality = estimatorQuality(stableEstimate);
-  const agreed = agreementMs <= config.trackerAgreementMs && signConsistent;
+  const geometricallyAgreed = agreementMs <= config.trackerAgreementMs && signConsistent;
+  const agreementQualityValid =
+    shortEstimate.peakScore >= 0.62 &&
+    stableEstimate.peakScore >= 0.68 &&
+    shortQuality >= 0.42 &&
+    stableQuality >= 0.48;
+  const agreed = geometricallyAgreed && agreementQualityValid;
 
   const priorCorrectionFresh =
     previousState.initialized &&
