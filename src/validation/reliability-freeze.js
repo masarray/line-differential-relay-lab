@@ -54,9 +54,16 @@ export function evaluateReliabilityFreeze(report) {
   if (dependability.eligibleCases < Math.floor(report.campaign.dependabilityCases * 0.5)) {
     failures.push('INSUFFICIENT_DEPENDABILITY_ELIGIBLE_CASES');
   }
+  if (
+    dependability.preFaultAvailableEligibleCases <
+    Math.floor(report.campaign.dependabilityCases * 0.25)
+  ) failures.push('INSUFFICIENT_PREFAULT_AVAILABLE_CASES');
   if (dependability.invariantViolationFrames !== 0) failures.push('SAFETY_INVARIANT_VIOLATION_FOUND');
-  if ((dependability.operatingTimeMs?.p95 ?? Number.POSITIVE_INFINITY) > 160) {
-    failures.push('DEPENDABILITY_P95_ABOVE_160_MS');
+  if ((dependability.qualifiedOperatingLatencyMs?.p95 ?? Number.POSITIVE_INFINITY) > 80) {
+    failures.push('QUALIFIED_OPERATING_LATENCY_P95_ABOVE_80_MS');
+  }
+  if ((dependability.preFaultAvailableFaultToTripMs?.p95 ?? Number.POSITIVE_INFINITY) > 160) {
+    failures.push('AVAILABLE_AT_FAULT_TOTAL_P95_ABOVE_160_MS');
   }
 
   return {
@@ -73,7 +80,11 @@ export function evaluateReliabilityFreeze(report) {
       missedEligibleTrips: dependability.missedEligibleTrips,
       communicationInhibited: dependability.communicationInhibited,
       alignmentInhibited: dependability.alignmentInhibited,
-      dependabilityP95Ms: dependability.operatingTimeMs?.p95 ?? null,
+      fullFaultToTripP95Ms: dependability.faultToTripMs?.p95 ?? null,
+      permissionDelayP95Ms: dependability.permissionDelayMs?.p95 ?? null,
+      qualifiedOperatingLatencyP95Ms: dependability.qualifiedOperatingLatencyMs?.p95 ?? null,
+      preFaultAvailableFaultToTripP95Ms: dependability.preFaultAvailableFaultToTripMs?.p95 ?? null,
+      preFaultAvailableEligibleCases: dependability.preFaultAvailableEligibleCases,
       invariantViolationFrames: dependability.invariantViolationFrames
     }
   };
@@ -146,7 +157,11 @@ export function reliabilityFreezeMarkdown(report) {
     `- Missed eligible trips: ${gate.acceptance.missedEligibleTrips}`,
     `- Communication-inhibited internal cases: ${gate.acceptance.communicationInhibited}`,
     `- Alignment-inhibited internal cases: ${gate.acceptance.alignmentInhibited}`,
-    `- Internal-fault operating time P95: ${gate.acceptance.dependabilityP95Ms} ms`,
+    `- Full fault-to-trip P95, including revalidation: ${gate.acceptance.fullFaultToTripP95Ms} ms`,
+    `- Permission/revalidation delay P95: ${gate.acceptance.permissionDelayP95Ms} ms`,
+    `- Qualified operating latency P95: ${gate.acceptance.qualifiedOperatingLatencyP95Ms} ms`,
+    `- Available-at-fault total P95: ${gate.acceptance.preFaultAvailableFaultToTripP95Ms} ms`,
+    `- Available-at-fault eligible cases: ${gate.acceptance.preFaultAvailableEligibleCases}`,
     `- Safety-invariant violation frames: ${gate.acceptance.invariantViolationFrames}`,
     '',
     '## Security profiles',
@@ -161,7 +176,7 @@ export function reliabilityFreezeMarkdown(report) {
     '',
     '## Interpretation',
     '',
-    `The Smart profile completed this finite campaign with ${smart.failedRuns} failed runs and ${smart.availabilityPct.mean}% mean availability. Internal-fault expectations were applied only when both communication evidence and alignment evidence were qualified. Cases with measured samples but untrusted timing were reported separately as alignment-inhibited.`,
+    `The Smart profile completed this finite campaign with ${smart.failedRuns} failed runs and ${smart.availabilityPct.mean}% mean availability. Full fault-to-trip timing retains any initial SECURE or BLOCKED revalidation delay. Qualified operating latency begins only at the final continuous trip-permission streak leading to operation. Both are reported so unavailable protection is not presented as fast operation.`,
     '',
     ...(gate.failures.length ? ['## Gate failures', '', ...gate.failures.map((failure) => `- ${failure}`), ''] : []),
     '> This is a deterministic synthetic regression gate for a public engineering portfolio. It is not protection-relay certification or field reliability proof.',
