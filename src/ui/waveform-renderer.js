@@ -11,18 +11,6 @@ function clamp(value, minimum, maximum) {
   return Math.max(minimum, Math.min(maximum, value));
 }
 
-export const WAVEFORM_DISPLAY_MODES = Object.freeze({
-  LIVE: 'live',
-  PERSIST: 'persist',
-  FREEZE: 'freeze'
-});
-
-export function normalizeWaveformDisplayMode(value) {
-  return Object.values(WAVEFORM_DISPLAY_MODES).includes(value)
-    ? value
-    : WAVEFORM_DISPLAY_MODES.LIVE;
-}
-
 export function persistenceOpacity(index, total) {
   if (total <= 0) return 0;
   const ratio = clamp((index + 1) / total, 0, 1);
@@ -56,9 +44,7 @@ export class WaveformRenderer {
     this.canvas = canvas;
     this.context = canvas.getContext('2d', { alpha: false });
     this.frame = null;
-    this.liveFrame = null;
     this.history = [];
-    this.displayMode = WAVEFORM_DISPLAY_MODES.LIVE;
     this.maxPersistenceFrames = 9;
     this.cursorRatio = 0.76;
     this.pointerCanvasX = null;
@@ -74,43 +60,12 @@ export class WaveformRenderer {
       this.cursorRatio = 0.76;
       this.draw();
     });
-    window.addEventListener('waveform-display-mode', (event) => {
-      this.setDisplayMode(event.detail?.mode);
-    });
-  }
-
-  setDisplayMode(requestedMode) {
-    const mode = normalizeWaveformDisplayMode(requestedMode);
-    if (mode === WAVEFORM_DISPLAY_MODES.FREEZE) {
-      if (this.displayMode !== WAVEFORM_DISPLAY_MODES.FREEZE && this.frame) {
-        this.frame = cloneDisplayFrame(this.frame);
-      }
-      this.displayMode = mode;
-      this.draw();
-      return;
-    }
-
-    this.displayMode = mode;
-    if (this.liveFrame) this.frame = this.liveFrame;
-    if (mode === WAVEFORM_DISPLAY_MODES.LIVE) {
-      this.history = [];
-    } else if (this.frame && this.history.length === 0) {
-      this.history.push(cloneDisplayFrame(this.frame));
-    }
-    this.draw();
   }
 
   setFrame(frame) {
-    this.liveFrame = frame;
-    if (this.displayMode === WAVEFORM_DISPLAY_MODES.FREEZE) return;
-
     this.frame = frame;
-    if (this.displayMode === WAVEFORM_DISPLAY_MODES.PERSIST) {
-      this.history.push(cloneDisplayFrame(frame));
-      if (this.history.length > this.maxPersistenceFrames) this.history.shift();
-    } else {
-      this.history = [];
-    }
+    this.history.push(cloneDisplayFrame(frame));
+    if (this.history.length > this.maxPersistenceFrames) this.history.shift();
     this.draw();
   }
 
@@ -220,9 +175,7 @@ export class WaveformRenderer {
       { data: frame.waveforms.validatedIdiff, lane: 3, color: validatedDiffColor, width: 1.8 }
     ];
 
-    const scaleFrames = this.displayMode === WAVEFORM_DISPLAY_MODES.LIVE
-      ? [this.frame]
-      : [...this.history, this.frame];
+    const scaleFrames = this.history.length > 0 ? this.history : [this.frame];
     const currentValues = scaleFrames.flatMap((frame) => [
       ...frame.waveforms.local.filter(finite).map(Math.abs),
       ...frame.waveforms.remoteReceived.filter(finite).map(Math.abs),
@@ -255,10 +208,9 @@ export class WaveformRenderer {
             continue;
           }
           const x = plotLeft + (index / Math.max(1, data.length - 1)) * plotWidth;
-          const signedValue = series.lane === 3 ? value - diffMax / 2 : value;
           const y = series.lane === 3
             ? laneTop + laneHeight * 0.82 - value * ((laneHeight * 0.7) / diffMax)
-            : middle - signedValue * scaleY;
+            : middle - value * scaleY;
           if (!drawing) {
             context.moveTo(x, y);
             drawing = true;
@@ -272,7 +224,7 @@ export class WaveformRenderer {
       context.setLineDash([]);
     };
 
-    if (this.displayMode !== WAVEFORM_DISPLAY_MODES.LIVE && this.history.length > 1) {
+    if (this.history.length > 1) {
       const ghostFrames = this.history.slice(0, -1);
       ghostFrames.forEach((frame, index) => {
         drawFrameSeries(frame, persistenceOpacity(index, ghostFrames.length), 0.82);
