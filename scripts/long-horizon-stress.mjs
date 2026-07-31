@@ -1,5 +1,6 @@
 import { mkdir, writeFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
+import { SECURITY_POLICIES } from '../src/engine/constants.js';
 import {
   DEFAULT_STRESS_OPTIONS,
   DEFAULT_STRESS_PROFILES,
@@ -27,13 +28,28 @@ function positiveInteger(value, fallback) {
   return Number.isFinite(parsed) && parsed > 0 ? Math.floor(parsed) : fallback;
 }
 
+function benchmarkProfile(profile) {
+  if (profile.id !== STRESS_PROFILE_IDS.COMMUNICATION_SUPERVISED) return profile;
+  return {
+    ...profile,
+    label: 'Communication-only supervised RTT/2',
+    securityPolicy: SECURITY_POLICIES.COMMUNICATION_ONLY_SUPERVISED,
+    settings: {
+      ...profile.settings,
+      secureWindowMs: 120,
+      recoveryValidationMs: 180,
+      securePickupMultiplier: 1.55
+    }
+  };
+}
+
 function parseProfiles(value) {
   const supported = new Map(DEFAULT_STRESS_PROFILES.map((profile) => [profile.id, profile]));
   const profileIds = value
     ? value.split(',').map((entry) => entry.trim()).filter((entry) => supported.has(entry))
     : DEFAULT_STRESS_OPTIONS.profiles;
   if (profileIds.length === 0) throw new Error('No supported long-horizon stress profiles selected.');
-  return profileIds.map((profileId) => supported.get(profileId));
+  return profileIds.map((profileId) => benchmarkProfile(supported.get(profileId)));
 }
 
 const smoke = hasFlag('smoke');
