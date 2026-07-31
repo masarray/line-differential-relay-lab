@@ -1,8 +1,8 @@
 {
   "name": "line-differential-relay-lab",
-  "version": "0.6.0",
+  "version": "0.7.0",
   "private": true,
-  "description": "Industrial real-time 87L laboratory with packet-driven anomalies, blind waveform tracking, and deterministic Monte Carlo validation.",
+  "description": "Industrial real-time 87L laboratory with packet-driven anomalies, blind waveform tracking, failure-driven hardening, and deterministic Monte Carlo validation.",
   "type": "module",
   "scripts": {
     "dev": "node scripts/dev-server.mjs",
