@@ -1,6 +1,6 @@
 {
   "name": "line-differential-relay-lab",
-  "version": "0.10.0",
+  "version": "0.10.1",
   "private": true,
   "description": "Deterministic 87L research laboratory with packet-driven communication stress, bounded waveform-assisted alignment, runtime safety invariants, and evidence-qualified dependability validation.",
   "type": "module",
@@ -8,7 +8,7 @@
     "dev": "node scripts/dev-server.mjs",
     "build": "node scripts/build.mjs",
     "test": "node --test",
-    "check": "node --check src/app.js && node --check src/worker/simulation-worker.js && node --check src/engine/simulation.js && node --check src/engine/safety-invariants.js && node --check src/validation/monte-carlo.js && node --check src/validation/long-horizon-stress.js && node --check src/validation/recovery-qualified-stress.js && node --check src/validation/degraded-dependability.js && node --check src/validation/qualified-operating-timing.js && node --check src/validation/evidence-qualified-dependability.js && node --check src/validation/reliability-freeze.js && node --check scripts/monte-carlo.mjs && node --check scripts/long-horizon-stress.mjs && node --check scripts/degraded-dependability.mjs && node --check scripts/reliability-freeze.mjs",
+    "check": "node --check src/app.js && node --check src/worker/simulation-worker.js && node --check src/engine/simulation.js && node --check src/engine/safety-invariants.js && node --check src/ui/presentation-waveform.js && node --check src/validation/monte-carlo.js && node --check src/validation/long-horizon-stress.js && node --check src/validation/recovery-qualified-stress.js && node --check src/validation/degraded-dependability.js && node --check src/validation/qualified-operating-timing.js && node --check src/validation/evidence-qualified-dependability.js && node --check src/validation/reliability-freeze.js && node --check scripts/monte-carlo.mjs && node --check scripts/long-horizon-stress.mjs && node --check scripts/degraded-dependability.mjs && node --check scripts/reliability-freeze.mjs && node --check scripts/build.mjs",
     "benchmark": "node scripts/monte-carlo.mjs",
     "benchmark:smoke": "node scripts/monte-carlo.mjs --smoke --compact --output artifacts/validation",
     "benchmark:stress": "node scripts/long-horizon-stress.mjs",
