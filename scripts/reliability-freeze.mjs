@@ -57,6 +57,43 @@ console.log([
   `p95=${report.gate.acceptance.dependabilityP95Ms}ms`,
   `invariant-violations=${report.gate.acceptance.invariantViolationFrames}`
 ].join('  '));
+
+for (const [profileId, summary] of Object.entries(report.dependability.summary.byProfile)) {
+  console.log([
+    `dependability/${profileId}`.padEnd(40),
+    `eligible=${summary.eligibleTrips}/${summary.eligibleCases}`,
+    `misses=${summary.missedEligibleTrips}`,
+    `comm-inhibited=${summary.communicationInhibited}`,
+    `align-inhibited=${summary.alignmentInhibited}`,
+    `p50=${summary.operatingTimeMs.p50 ?? 'n/a'}ms`,
+    `p95=${summary.operatingTimeMs.p95 ?? 'n/a'}ms`,
+    `max=${summary.operatingTimeMs.max ?? 'n/a'}ms`
+  ].join('  '));
+}
+
+const slowestEligible = report.dependability.replays
+  .filter((replay) => replay.dependabilityEligible && Number.isFinite(replay.firstOperateMs))
+  .sort((left, right) => right.firstOperateMs - left.firstOperateMs)
+  .slice(0, 10);
+if (slowestEligible.length > 0) {
+  console.log('Slowest eligible internal-fault cases:');
+  for (const replay of slowestEligible) {
+    console.log([
+      replay.caseId,
+      `profile=${replay.profileId}`,
+      `operate=${replay.firstOperateMs}ms`,
+      `pre-state=${replay.preFaultDisplayState}`,
+      `pre-permission=${replay.preFaultPermission}`,
+      `fault-trip-allowed=${replay.tripAllowedPct}%`,
+      `degraded=${replay.degradedPct}%`,
+      `secure=${replay.securePct}%`,
+      `blocked=${replay.blockedPct}%`,
+      `strong-frames=${replay.strongEvidenceFrames}`,
+      `max-correction-age=${replay.maximumCorrectionAgeMs}ms`,
+      `final-reasons=${replay.finalEvidence?.reasons?.join('|') ?? 'none'}`
+    ].join('  '));
+  }
+}
 console.log(`Report: ${outputDirectory}`);
 
 if (!report.gate.passed) {
