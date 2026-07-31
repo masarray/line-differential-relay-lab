@@ -1,8 +1,14 @@
-import { ALGORITHM_MODES, ELECTRICAL_SCENARIOS, createDefaultConfig } from './constants.js';
+import {
+  ALGORITHM_MODES,
+  ELECTRICAL_SCENARIOS,
+  SECURITY_POLICIES,
+  createDefaultConfig
+} from './constants.js';
 import { clamp } from './math.js';
 
 const algorithms = new Set(Object.values(ALGORITHM_MODES));
 const scenarios = new Set(Object.values(ELECTRICAL_SCENARIOS));
+const securityPolicies = new Set(Object.values(SECURITY_POLICIES));
 
 function number(value, fallback, minimum, maximum) {
   const parsed = Number(value);
@@ -19,6 +25,9 @@ export function sanitizeConfig(candidate = {}) {
   config.schemaVersion = 1;
   config.seed = Math.max(1, Math.floor(number(config.seed, defaults.seed, 1, 2_147_483_647)));
   config.algorithm = algorithms.has(config.algorithm) ? config.algorithm : defaults.algorithm;
+  config.securityPolicy = securityPolicies.has(config.securityPolicy)
+    ? config.securityPolicy
+    : defaults.securityPolicy;
   config.scenario = scenarios.has(config.scenario) ? config.scenario : defaults.scenario;
   config.frequencyHz = number(config.frequencyHz, defaults.frequencyHz, 40, 70);
   config.sampleRateHz = number(config.sampleRateHz, defaults.sampleRateHz, 1000, 16000);
