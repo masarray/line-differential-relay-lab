@@ -8,12 +8,14 @@
     "dev": "node scripts/dev-server.mjs",
     "build": "node scripts/build.mjs",
     "test": "node --test",
-    "check": "node --check src/app.js && node --check src/worker/simulation-worker.js && node --check src/engine/simulation.js && node --check src/validation/monte-carlo.js && node --check src/validation/long-horizon-stress.js && node --check src/validation/recovery-qualified-stress.js && node --check scripts/monte-carlo.mjs && node --check scripts/long-horizon-stress.mjs",
+    "check": "node --check src/app.js && node --check src/worker/simulation-worker.js && node --check src/engine/simulation.js && node --check src/engine/safety-invariants.js && node --check src/validation/monte-carlo.js && node --check src/validation/long-horizon-stress.js && node --check src/validation/recovery-qualified-stress.js && node --check src/validation/degraded-dependability.js && node --check scripts/monte-carlo.mjs && node --check scripts/long-horizon-stress.mjs && node --check scripts/degraded-dependability.mjs",
     "benchmark": "node scripts/monte-carlo.mjs",
     "benchmark:smoke": "node scripts/monte-carlo.mjs --smoke --compact --output artifacts/validation",
     "benchmark:stress": "node scripts/long-horizon-stress.mjs",
     "benchmark:stress:smoke": "node scripts/long-horizon-stress.mjs --smoke --compact --require-baseline-failures --output artifacts/long-horizon-stress",
-    "validate": "npm run check && npm test && npm run benchmark:smoke && npm run benchmark:stress:smoke && npm run build"
+    "benchmark:dependability": "node scripts/degraded-dependability.mjs",
+    "benchmark:dependability:smoke": "node scripts/degraded-dependability.mjs --smoke --compact --require-no-eligible-misses --require-eligible-cases --output artifacts/degraded-dependability",
+    "validate": "npm run check && npm test && npm run benchmark:smoke && npm run benchmark:stress:smoke && npm run benchmark:dependability:smoke && npm run build"
   },
   "keywords": [
     "87l",
