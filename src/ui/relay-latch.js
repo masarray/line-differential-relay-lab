@@ -1,4 +1,5 @@
 import { installReadableAnalysisPanel } from './analysis-panel.js';
+import { installRelayExperience } from './relay-experience.js';
 import { installVirtualRelayPanel } from './virtual-relay-panel.js';
 
 /**
@@ -9,6 +10,7 @@ import { installVirtualRelayPanel } from './virtual-relay-panel.js';
 if (typeof document !== 'undefined') {
   installVirtualRelayPanel();
   installReadableAnalysisPanel();
+  installRelayExperience();
   const alignmentOutput = document.getElementById('alignment-error');
   const alignmentLabel = alignmentOutput?.previousElementSibling;
   if (alignmentLabel) alignmentLabel.textContent = 'ALIGN UNC';

@@ -1,4 +1,4 @@
-const CACHE_NAME = 'line-differential-relay-lab-v12';
+const CACHE_NAME = 'line-differential-relay-lab-v13';
 const ASSETS = [
   './',
   './index.html',
@@ -10,6 +10,7 @@ const ASSETS = [
   './ui/relay-latch.js',
   './ui/virtual-relay-panel.js',
   './ui/analysis-panel.js',
+  './ui/relay-experience.js',
   './worker/simulation-worker.js',
   './engine/constants.js',
   './engine/random.js',
