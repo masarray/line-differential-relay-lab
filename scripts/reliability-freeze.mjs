@@ -54,7 +54,9 @@ console.log([
   `smart-availability=${report.gate.acceptance.smartAvailabilityMeanPct}%`,
   `eligible-trips=${report.gate.acceptance.eligibleInternalTrips}/${report.gate.acceptance.dependabilityEligibleCases}`,
   `alignment-inhibited=${report.gate.acceptance.alignmentInhibited}`,
-  `p95=${report.gate.acceptance.dependabilityP95Ms}ms`,
+  `full-fault-p95=${report.gate.acceptance.fullFaultToTripP95Ms}ms`,
+  `qualified-p95=${report.gate.acceptance.qualifiedOperatingLatencyP95Ms}ms`,
+  `available-at-fault-p95=${report.gate.acceptance.preFaultAvailableFaultToTripP95Ms}ms`,
   `invariant-violations=${report.gate.acceptance.invariantViolationFrames}`
 ].join('  '));
 
@@ -65,26 +67,28 @@ for (const [profileId, summary] of Object.entries(report.dependability.summary.b
     `misses=${summary.missedEligibleTrips}`,
     `comm-inhibited=${summary.communicationInhibited}`,
     `align-inhibited=${summary.alignmentInhibited}`,
-    `p50=${summary.operatingTimeMs.p50 ?? 'n/a'}ms`,
-    `p95=${summary.operatingTimeMs.p95 ?? 'n/a'}ms`,
-    `max=${summary.operatingTimeMs.max ?? 'n/a'}ms`
+    `full-p95=${summary.faultToTripMs.p95 ?? 'n/a'}ms`,
+    `qualified-p95=${summary.qualifiedOperatingLatencyMs.p95 ?? 'n/a'}ms`,
+    `available-at-fault-p95=${summary.preFaultAvailableFaultToTripMs.p95 ?? 'n/a'}ms`
   ].join('  '));
 }
 
 const slowestEligible = report.dependability.replays
-  .filter((replay) => replay.dependabilityEligible && Number.isFinite(replay.firstOperateMs))
-  .sort((left, right) => right.firstOperateMs - left.firstOperateMs)
+  .filter((replay) => replay.dependabilityEligible && Number.isFinite(replay.faultToTripMs))
+  .sort((left, right) => right.faultToTripMs - left.faultToTripMs)
   .slice(0, 10);
 if (slowestEligible.length > 0) {
-  console.log('Slowest eligible internal-fault cases:');
+  console.log('Slowest full fault-to-trip cases, including revalidation:');
   for (const replay of slowestEligible) {
     console.log([
       replay.caseId,
       `profile=${replay.profileId}`,
-      `operate=${replay.firstOperateMs}ms`,
+      `fault-to-trip=${replay.faultToTripMs}ms`,
+      `permission-start=${replay.operatingPermissionStartMs ?? 'n/a'}ms`,
+      `qualified-latency=${replay.qualifiedOperatingLatencyMs ?? 'n/a'}ms`,
+      `pre-available=${replay.preFaultOperationallyAvailable}`,
       `pre-state=${replay.preFaultDisplayState}`,
       `pre-permission=${replay.preFaultPermission}`,
-      `fault-trip-allowed=${replay.tripAllowedPct}%`,
       `degraded=${replay.degradedPct}%`,
       `secure=${replay.securePct}%`,
       `blocked=${replay.blockedPct}%`,
