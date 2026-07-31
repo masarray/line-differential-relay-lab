@@ -68,12 +68,22 @@ function fuseEstimators({ shortEstimate, stableEstimate, config, channel, previo
   const stableQuality = estimatorQuality(stableEstimate);
   const agreed = agreementMs <= config.trackerAgreementMs && signConsistent;
 
+  const channelTrustedForElectricalHold =
+    !channel.hardInvalid &&
+    (channel.sequenceGapCount ?? 0) === 0 &&
+    (channel.maxConsecutiveLossFrames ?? 0) === 0 &&
+    (channel.lateFrames ?? 0) === 0 &&
+    (channel.queueDepthFrames ?? 0) <= 2 &&
+    (channel.rttJitterMs ?? 0) <= 0.55;
+
   // Through-current timing evidence is normally anti-correlated after polarity
   // convention. A coherent transition toward positive correlation can be a real
   // internal electrical event. Freeze the trusted delay trajectory instead of
-  // allowing the timing tracker to align that event away.
+  // allowing the timing tracker to align that event away. The hold is permitted
+  // only while receiver-observable channel evidence remains trustworthy.
   const coherentPolarityReversal =
     previousState.initialized &&
+    channelTrustedForElectricalHold &&
     shortEstimate.peakScore >= 0.72 &&
     stableEstimate.peakScore >= 0.78 &&
     shortEstimate.correlation > -0.05 &&
