@@ -56,12 +56,25 @@ export function calculateConfidence({ config, channel, alignment, validFraction,
       (tracker.innovationClamped ? 7 : 0)
     : 0;
   const gpsPenalty = config.algorithm === ALGORITHM_MODES.GPS && !channel.timeSyncValid ? 58 : 0;
-  const alignmentScore = clamp(100 - alignment.uncertaintyMs * 32 - trackerPenalty - gpsPenalty, 0, 100);
+  const rawAlignmentScore = clamp(100 - alignment.uncertaintyMs * 32 - trackerPenalty - gpsPenalty, 0, 100);
 
   const coherence = Math.abs(alignment.protectionCorrelation ?? alignment.trackingCorrelation ?? 0);
   const predictionPenalty = (tracker.predictedFraction ?? 0) * 55;
   const measuredCoveragePenalty = Math.max(0, 1 - protectionValidFraction) * 135;
   const waveformScore = clamp(coherence * 100 - predictionPenalty - measuredCoveragePenalty, 0, 100);
+
+  const trustedElectricalHold =
+    electricalHold &&
+    channelScore >= 82 &&
+    waveformScore >= 82 &&
+    protectionValidFraction >= 0.9 &&
+    sequenceGapCount === 0 &&
+    consecutiveLoss === 0 &&
+    lateFrames === 0 &&
+    queueOverflowFrames === 0;
+  const alignmentScore = trustedElectricalHold
+    ? Math.max(rawAlignmentScore, 84)
+    : rawAlignmentScore;
 
   const reasons = [];
   if (channel.corruption) reasons.push('PACKET_INTEGRITY_FAIL');
@@ -76,7 +89,7 @@ export function calculateConfidence({ config, channel, alignment, validFraction,
   if (channel.routeTransitionActive) reasons.push('ROUTE_TRANSITION');
   if ((channel.rttJitterMs ?? 0) > 0.6 || (channel.rttStepMs ?? 0) > 1) reasons.push('RTT_UNSTABLE');
   if (config.algorithm === ALGORITHM_MODES.SMART_TRACKING && electricalHold) {
-    reasons.push('ELECTRICAL_TRANSIENT_HOLD');
+    reasons.push(trustedElectricalHold ? 'ELECTRICAL_TRANSIENT_HOLD' : 'ELECTRICAL_HOLD_UNTRUSTED');
   }
   if (config.algorithm === ALGORITHM_MODES.SMART_TRACKING && Math.abs(alignment.trackingCorrectionMs) > 0.45) {
     reasons.push('RTT_ALIGNMENT_DISAGREEMENT');
@@ -91,7 +104,7 @@ export function calculateConfidence({ config, channel, alignment, validFraction,
     config.algorithm === ALGORITHM_MODES.SMART_TRACKING &&
     innovationMs > Math.max(config.trackerAgreementMs * 1.5, config.trackerMaxSlewMs * 1.25)
   ) reasons.push('TRAJECTORY_INNOVATION_HIGH');
-  if (alignment.uncertaintyMs > 0.45) reasons.push('ALIGNMENT_UNCERTAIN');
+  if (alignment.uncertaintyMs > 0.45 && !trustedElectricalHold) reasons.push('ALIGNMENT_UNCERTAIN');
   if (config.algorithm === ALGORITHM_MODES.GPS && !channel.timeSyncValid) reasons.push('TIME_SYNC_INVALID');
   if (
     config.algorithm === ALGORITHM_MODES.SMART_TRACKING &&
@@ -104,15 +117,21 @@ export function calculateConfidence({ config, channel, alignment, validFraction,
   }
   if (protectionValidFraction < config.minProtectionValidFraction) reasons.push('INSUFFICIENT_MEASURED_DATA');
   if (validFraction < 0.92) reasons.push('REMOTE_DATA_GAPS');
+  if (channelScore < 42) reasons.push('CHANNEL_UNRELIABLE');
   if (reasons.length === 0) reasons.push('QUALITY_NOMINAL');
 
-  const hardInvalid = Boolean(channel.hardInvalid || protectionValidFraction < 0.25);
+  const hardInvalid = Boolean(
+    channel.hardInvalid ||
+    channelScore < 42 ||
+    protectionValidFraction < 0.25
+  );
   return {
     channel: { score: channelScore, status: scoreStatus(channelScore) },
     alignment: { score: alignmentScore, status: scoreStatus(alignmentScore) },
     waveform: { score: waveformScore, status: scoreStatus(waveformScore) },
     minimumScore: Math.min(channelScore, alignmentScore, waveformScore),
     hardInvalid,
+    trustedElectricalHold,
     reasons
   };
 }
