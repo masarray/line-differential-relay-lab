@@ -56,7 +56,9 @@ console.log([
   `misses=${report.summary.missedEligibleTrips}`,
   `communication-inhibited=${report.summary.communicationInhibited}`,
   `alignment-inhibited=${report.summary.alignmentInhibited}`,
-  `p95=${report.summary.operatingTimeMs.p95 ?? 'n/a'}ms`,
+  `full-p95=${report.summary.faultToTripMs.p95 ?? 'n/a'}ms`,
+  `qualified-p95=${report.summary.qualifiedOperatingLatencyMs.p95 ?? 'n/a'}ms`,
+  `available-at-fault-p95=${report.summary.preFaultAvailableFaultToTripMs.p95 ?? 'n/a'}ms`,
   `invariant-violations=${report.summary.invariantViolationFrames}`
 ].join('  '));
 for (const [profileId, summary] of Object.entries(report.summary.byProfile)) {
@@ -67,7 +69,8 @@ for (const [profileId, summary] of Object.entries(report.summary.byProfile)) {
     `misses=${summary.missedEligibleTrips}`,
     `comm-inhibited=${summary.communicationInhibited}`,
     `align-inhibited=${summary.alignmentInhibited}`,
-    `p95=${summary.operatingTimeMs.p95 ?? 'n/a'}ms`,
+    `full-p95=${summary.faultToTripMs.p95 ?? 'n/a'}ms`,
+    `qualified-p95=${summary.qualifiedOperatingLatencyMs.p95 ?? 'n/a'}ms`,
     `availability=${summary.availabilityPct.mean ?? 'n/a'}%`
   ].join('  '));
 }
