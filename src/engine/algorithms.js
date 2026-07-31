@@ -232,12 +232,20 @@ export function alignRemote({
   }
 
   if (config.algorithm === ALGORITHM_MODES.SMART_TRACKING) {
-    const coarseAligned = shiftSeries(trackingRemote, pingPongEstimateMs * samplesPerMs);
+    const coarseShiftSamples = pingPongEstimateMs * samplesPerMs;
+    const coarseAligned = shiftSeries(trackingRemote, coarseShiftSamples);
     const maximumLagSamples = Math.max(1, Math.round(config.trackWindowMs * samplesPerMs));
-    const shortStart = Math.max(0, local.length - Math.round(samplesPerCycle * config.trackerShortWindowCycles));
-    const stableStart = Math.max(0, local.length - Math.round(samplesPerCycle * config.trackerStabilityWindowCycles));
-    const shortEstimate = estimateLag(local, coarseAligned, maximumLagSamples, shortStart);
-    const stableEstimate = estimateLag(local, coarseAligned, maximumLagSamples, stableStart);
+    // Positive alignment shifts consume samples at the right edge. Search only
+    // inside the common measured overlap so a valid short estimator cannot be
+    // misclassified as zero-quality merely because transport latency is large.
+    const searchEnd = Math.max(
+      16,
+      local.length - Math.ceil(Math.max(0, coarseShiftSamples) + maximumLagSamples) - 2
+    );
+    const shortStart = Math.max(0, searchEnd - Math.round(samplesPerCycle * config.trackerShortWindowCycles));
+    const stableStart = Math.max(0, searchEnd - Math.round(samplesPerCycle * config.trackerStabilityWindowCycles));
+    const shortEstimate = estimateLag(local, coarseAligned, maximumLagSamples, shortStart, searchEnd);
+    const stableEstimate = estimateLag(local, coarseAligned, maximumLagSamples, stableStart, searchEnd);
     const fusion = fuseEstimators({ shortEstimate, stableEstimate, config, channel: receiverChannel });
     const trajectory = updateTrajectory({ previousState: trackerState, fusion, config });
 

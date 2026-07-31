@@ -72,25 +72,44 @@ function createPacketEvent(config, sequence, samplePeriodMs, packetIntervalMs) {
   };
 }
 
+
+function receiverPlayoutBufferMs(config, packetIntervalMs) {
+  if (config.reorderBufferFrames <= 0) return 0;
+  return Math.max(
+    config.reorderBufferFrames * packetIntervalMs,
+    config.reorderExtraDelayMs * 1.25 + config.jitterMs * 3
+  );
+}
+
 function analyseArrivalOrder(events, config, packetIntervalMs) {
   const viable = events.filter((event) => !event.lost && !event.corrupted);
+  const playoutBufferMs = receiverPlayoutBufferMs(config, packetIntervalMs);
+
   for (const event of viable) {
     let depth = 0;
     for (const other of viable) {
       if (other.sequence > event.sequence && other.rawArrivalTimeMs < event.rawArrivalTimeMs) depth += 1;
     }
+
+    // A sequence-aware receiver restores accepted packets to a uniform sample
+    // cadence. Jitter and bounded reordering consume playout margin; they do not
+    // stretch/compress the electrical waveform. Packets missing the target
+    // release deadline remain explicit measured-data gaps.
+    const nominalForwardMs = Math.max(
+      0.05,
+      config.baseDelayMs + config.asymmetryMs / 2 + event.routeOffsetMs
+    );
+    const targetReleaseTimeMs =
+      event.packetEndTimeMs + nominalForwardMs + config.packetSerializationMs + playoutBufferMs;
+
     event.reorderDepth = depth;
     event.reordered = depth > 0 || event.reorderTriggered;
-    event.late = depth > config.reorderBufferFrames;
+    event.playoutBufferMs = playoutBufferMs;
+    event.targetReleaseTimeMs = targetReleaseTimeMs;
+    event.late = depth > config.reorderBufferFrames || event.rawArrivalTimeMs > targetReleaseTimeMs;
     event.queueOverflow = depth + 1 > config.maxReceiverQueueFrames;
     event.accepted = !event.late && !event.queueOverflow;
-  }
-
-  let previousReleaseTimeMs = Number.NEGATIVE_INFINITY;
-  for (const event of events) {
-    if (!event.accepted) continue;
-    event.releaseTimeMs = Math.max(event.rawArrivalTimeMs, previousReleaseTimeMs + packetIntervalMs);
-    previousReleaseTimeMs = event.releaseTimeMs;
+    event.releaseTimeMs = event.accepted ? targetReleaseTimeMs : Number.NaN;
   }
 }
 
@@ -210,11 +229,17 @@ export function createPacketChannelWindow({
   const currentRouteOffsetMs = routeOffsetMs(config, simulationTimeMs);
   const currentForwardJitterMs = normalNoise(config.seed + frameIndex * 17 + 11) * config.jitterMs;
   const currentReturnJitterMs = normalNoise(config.seed + frameIndex * 19 + 23) * config.jitterMs;
-  const forwardMs = Math.max(0.05, config.baseDelayMs + config.asymmetryMs / 2 + currentRouteOffsetMs + currentForwardJitterMs);
-  const returnMs = Math.max(0.05, config.baseDelayMs - config.asymmetryMs / 2 + currentReturnJitterMs);
+  const playoutBufferMs = receiverPlayoutBufferMs(config, packetIntervalMs);
+  const networkForwardMs = Math.max(0.05, config.baseDelayMs + config.asymmetryMs / 2 + currentRouteOffsetMs + currentForwardJitterMs);
+  const networkReturnMs = Math.max(0.05, config.baseDelayMs - config.asymmetryMs / 2 + currentReturnJitterMs);
+  // Expose deterministic receiver playout as symmetric, known transport
+  // latency. RTT/2 therefore includes the buffer without revealing one-way
+  // ground truth, while asymmetric network delay remains a blind residual.
+  const forwardMs = networkForwardMs + playoutBufferMs;
+  const returnMs = networkReturnMs + playoutBufferMs;
   const packetAgeMs = Math.max(
     metrics.maxPacketAgeMs,
-    forwardMs + config.packetSerializationMs + packetIntervalMs
+    networkForwardMs + config.packetSerializationMs + playoutBufferMs + packetIntervalMs
   );
   const corruption = metrics.corruptedFrames > 0;
   const hardInvalid =
@@ -237,6 +262,7 @@ export function createPacketChannelWindow({
       hardInvalid,
       routeOffsetMs: currentRouteOffsetMs,
       routeTransitionActive: metrics.routeTransitionActive,
+      playoutBufferMs,
       receiver: metrics
     },
     packets: events

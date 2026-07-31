@@ -1,16 +1,17 @@
 {
   "name": "line-differential-relay-lab",
-  "version": "0.6.0",
+  "version": "0.7.0",
   "private": true,
-  "description": "Industrial real-time 87L laboratory with packet-driven anomalies, blind waveform tracking, and deterministic Monte Carlo validation.",
+  "description": "Industrial real-time 87L laboratory with packet-driven anomalies, failure-driven smart tracking hardening, and blind Monte Carlo validation.",
   "type": "module",
   "scripts": {
     "dev": "node scripts/dev-server.mjs",
     "build": "node scripts/build.mjs",
     "test": "node --test",
-    "check": "node --check src/app.js && node --check src/worker/simulation-worker.js && node --check src/engine/simulation.js && node --check src/validation/monte-carlo.js && node --check scripts/monte-carlo.mjs",
+    "check": "node --check src/app.js && node --check src/worker/simulation-worker.js && node --check src/engine/simulation.js && node --check src/engine/evidence-policy.js && node --check src/validation/monte-carlo.js && node --check scripts/monte-carlo.mjs && node --check scripts/replay-failure.mjs",
     "benchmark": "node scripts/monte-carlo.mjs",
     "benchmark:smoke": "node scripts/monte-carlo.mjs --smoke --compact --output artifacts/validation",
+    "benchmark:replay": "node scripts/replay-failure.mjs",
     "validate": "npm run check && npm test && npm run benchmark:smoke && npm run build"
   },
   "keywords": [
@@ -26,16 +27,12 @@
   ],
   "author": "Ari / SonkuPik Engineering",
   "license": "GPL-3.0-only",
-  "engines": {
-    "node": ">=20"
-  },
+  "engines": { "node": ">=20" },
   "repository": {
     "type": "git",
     "url": "git+https://github.com/masarray/line-differential-relay-lab.git"
   },
   "homepage": "https://masarray.github.io/line-differential-relay-lab/",
-  "bugs": {
-    "url": "https://github.com/masarray/line-differential-relay-lab/issues"
-  },
+  "bugs": { "url": "https://github.com/masarray/line-differential-relay-lab/issues" },
   "packageManager": "npm@10.9.2"
 }
