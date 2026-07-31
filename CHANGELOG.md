@@ -12,6 +12,25 @@ The project follows Semantic Versioning.
 - Side-by-side deterministic algorithm comparison in the browser
 - Expanded CT saturation and sequence-component models
 
+## [0.7.0] - 2026-07-31
+
+### Added
+
+- Failure-driven P4 regression suite derived from P3 unwanted-operation and missed-operation cases
+- Trusted electrical-transient hold that freezes timing adaptation during coherent polarity reversal
+- Receiver-quality qualification for electrical hold using sequence continuity, consecutive-loss, lateness, queue depth, and RTT variation
+- Directional measured-evidence gate for smart-mode operation
+- Strong measured internal-fault path that remains supervised and cannot bypass hard-invalid communication
+- `ELECTRICAL_TRANSIENT_HOLD`, `ELECTRICAL_HOLD_UNTRUSTED`, and `CHANNEL_UNRELIABLE` reason codes
+
+### Changed
+
+- Correlation search-boundary penalty is suppressed only while a trusted electrical hold deliberately freezes the last accepted correction
+- An unreliable channel score is now a hard-invalid veto for protection operation
+- Trusted electrical hold can move a soft BLOCKED or RECOVERY state only to WATCH supervision, never directly to unrestricted permission
+- Smart operation under communication stress now requires stronger directional evidence, measured coverage, persistence, and channel quality
+- P4 smoke replay reduced smart-mode unwanted operations from one to zero on the deterministic 12-case validation set
+
 ## [0.6.0] - 2026-07-31
 
 ### Added
