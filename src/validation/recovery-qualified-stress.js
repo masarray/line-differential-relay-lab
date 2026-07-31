@@ -7,6 +7,16 @@ import {
 } from './long-horizon-stress.js';
 import { hash32 } from '../engine/random.js';
 
+const RECOVERY_QUALIFIED_PHASE_ORDER = Object.freeze([
+  'link-flap',
+  'partial-recovery',
+  'deceptive-recovery',
+  'jitter-storm',
+  'asymmetric-route-flip',
+  'high-through-current-release',
+  'post-event-settle'
+]);
+
 function round(value, digits = 4) {
   if (!Number.isFinite(value)) return null;
   const scale = 10 ** digits;
@@ -80,8 +90,9 @@ export function qualifyStressScheduleForRecovery(baseSchedule) {
     jitterStorm.patch.packetAbsoluteAgeMs = 80;
 
     // Apply the decisive asymmetry as a fast route redistribution after the
-    // channel has already looked healthy. Total RTT can remain plausible while
-    // the forward/return split changes, which is the RTT/2 blind region.
+    // jitter history and immediately before the high-current phase. This avoids
+    // giving the supervisor another full secure/block cycle between the route
+    // change and the actual unwanted-operation opportunity.
     routeFlip.durationMs = episode.criticalOpportunity ? 20 : 40;
     routeFlip.patch.asymmetryMs = releaseAsymmetryMs;
     routeFlip.patch.jitterMs = 0.05;
@@ -105,6 +116,10 @@ export function qualifyStressScheduleForRecovery(baseSchedule) {
     highCurrent.patch.packetAbsoluteAgeMs = 80;
 
     settle.durationMs = Math.max(180, settle.durationMs);
+    episode.phases.sort((left, right) =>
+      RECOVERY_QUALIFIED_PHASE_ORDER.indexOf(left.name) -
+      RECOVERY_QUALIFIED_PHASE_ORDER.indexOf(right.name)
+    );
     episode.stressAsymmetryMs = round(releaseAsymmetryMs, 4);
     episode.recoveryQualified = true;
   }
