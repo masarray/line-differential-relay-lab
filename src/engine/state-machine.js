@@ -13,6 +13,7 @@ export class ProtectionStateMachine {
   }
 
   reset(config) {
+    this.algorithm = config.algorithm;
     this.state = PROTECTION_STATES.NORMAL;
     this.secureRemainingMs = config.secureWindowMs;
     this.goodEvidenceMs = 0;
@@ -66,7 +67,99 @@ export class ProtectionStateMachine {
     return this.snapshot();
   }
 
+  updateSmartAvailabilityAware({ config, confidence, deltaMs }) {
+    const good = confidence.minimumScore >= 82;
+    const degraded = confidence.degradedEligible === true;
+    const recoveryMs = Math.max(20, Number(config.degradedRecoveryMs ?? 60));
+
+    // P4 trusted electrical hold remains a fast supervised path. It cannot
+    // reach this method while the channel is hard-invalid because the hard veto
+    // is evaluated first in update().
+    if (
+      confidence.trustedElectricalHold &&
+      (this.state === PROTECTION_STATES.BLOCKED || this.state === PROTECTION_STATES.RECOVERY)
+    ) {
+      this.state = PROTECTION_STATES.WATCH;
+      this.goodEvidenceMs = 0;
+      this.secureRemainingMs = config.secureWindowMs;
+      return this.snapshot();
+    }
+
+    switch (this.state) {
+      case PROTECTION_STATES.NORMAL:
+        this.goodEvidenceMs = 0;
+        this.secureRemainingMs = config.secureWindowMs;
+        if (!good) {
+          this.state = degraded ? PROTECTION_STATES.WATCH : PROTECTION_STATES.SECURE;
+        }
+        break;
+
+      case PROTECTION_STATES.WATCH:
+        if (good) {
+          this.goodEvidenceMs += deltaMs;
+          if (this.goodEvidenceMs >= recoveryMs) {
+            this.state = PROTECTION_STATES.NORMAL;
+            this.goodEvidenceMs = 0;
+            this.secureRemainingMs = config.secureWindowMs;
+          }
+        } else if (degraded) {
+          // Continue measured-only supervised operation. This state is allowed
+          // to persist while the explicit degraded evidence gate remains true.
+          this.goodEvidenceMs = 0;
+          this.secureRemainingMs = config.secureWindowMs;
+        } else {
+          this.state = PROTECTION_STATES.SECURE;
+          this.goodEvidenceMs = 0;
+          this.secureRemainingMs = config.secureWindowMs;
+        }
+        break;
+
+      case PROTECTION_STATES.SECURE:
+        this.secureRemainingMs = Math.max(0, this.secureRemainingMs - deltaMs);
+        if (degraded) {
+          this.state = PROTECTION_STATES.WATCH;
+          this.goodEvidenceMs = 0;
+          this.secureRemainingMs = config.secureWindowMs;
+        } else if (good) {
+          this.goodEvidenceMs += deltaMs;
+          if (this.goodEvidenceMs >= recoveryMs) {
+            this.state = PROTECTION_STATES.WATCH;
+            this.goodEvidenceMs = 0;
+            this.secureRemainingMs = config.secureWindowMs;
+          }
+        } else {
+          // Soft uncertainty no longer escalates to BLOCKED merely because a
+          // fixed timer expired. Raised security remains active until either
+          // degraded evidence becomes valid or a fundamental hard veto occurs.
+          this.goodEvidenceMs = 0;
+        }
+        break;
+
+      case PROTECTION_STATES.BLOCKED:
+      case PROTECTION_STATES.RECOVERY:
+        if (good || degraded) {
+          this.goodEvidenceMs += deltaMs;
+          if (this.goodEvidenceMs >= recoveryMs) {
+            this.state = PROTECTION_STATES.WATCH;
+            this.goodEvidenceMs = 0;
+            this.secureRemainingMs = config.secureWindowMs;
+          }
+        } else {
+          this.goodEvidenceMs = 0;
+        }
+        break;
+
+      default:
+        this.state = PROTECTION_STATES.NORMAL;
+        this.goodEvidenceMs = 0;
+        this.secureRemainingMs = config.secureWindowMs;
+    }
+
+    return this.snapshot();
+  }
+
   update({ config, confidence, deltaMs }) {
+    this.algorithm = config.algorithm;
     const reasons = confidence.reasons;
     this.lastReason = reasons[0] ?? 'QUALITY_NOMINAL';
 
@@ -81,6 +174,10 @@ export class ProtectionStateMachine {
       this.goodEvidenceMs = 0;
       this.secureRemainingMs = 0;
       return this.snapshot();
+    }
+
+    if (config.algorithm === ALGORITHM_MODES.SMART_TRACKING) {
+      return this.updateSmartAvailabilityAware({ config, confidence, deltaMs });
     }
 
     if (
@@ -180,9 +277,20 @@ export class ProtectionStateMachine {
   snapshot() {
     const blocked = this.state === PROTECTION_STATES.BLOCKED || this.state === PROTECTION_STATES.RECOVERY;
     const secure = this.state === PROTECTION_STATES.SECURE;
+    const degraded = this.algorithm === ALGORITHM_MODES.SMART_TRACKING && this.state === PROTECTION_STATES.WATCH;
     return {
       state: this.state,
-      permission: blocked ? 'BLOCKED' : secure ? 'RAISED SECURITY' : this.state === PROTECTION_STATES.WATCH ? 'SUPERVISED' : 'UNRESTRICTED',
+      displayState: degraded ? 'DEGRADED 87L' : this.state,
+      permission: blocked
+        ? 'BLOCKED'
+        : secure
+          ? 'RAISED SECURITY'
+          : degraded
+            ? 'DEGRADED SUPERVISED'
+            : this.state === PROTECTION_STATES.WATCH
+              ? 'SUPERVISED'
+              : 'UNRESTRICTED',
+      degraded,
       secureRemainingMs: this.secureRemainingMs,
       reason: this.lastReason
     };
