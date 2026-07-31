@@ -20,7 +20,7 @@ test('degraded dependability case generation and replay are deterministic', () =
   assert.deepEqual(replayA, replayB);
 });
 
-test('P7 dependability smoke separates eligible trips, communication inhibition, and alignment inhibition', () => {
+test('P7 dependability smoke separates eligibility, revalidation delay, and qualified operating latency', () => {
   const report = runEvidenceQualifiedDependabilityCampaign({
     seed: 87161850,
     cases: 12,
@@ -34,7 +34,18 @@ test('P7 dependability smoke separates eligible trips, communication inhibition,
   assert.equal(report.summary.missedEligibleTrips, 0, JSON.stringify(report.replays, null, 2));
   assert.equal(report.summary.invariantViolationFrames, 0, JSON.stringify(report.replays, null, 2));
   assert.ok(report.summary.alignmentInhibited >= 1, JSON.stringify(report.summary));
-  assert.ok(report.summary.operatingTimeMs.p95 <= 140, JSON.stringify(report.summary));
+  assert.ok(report.summary.qualifiedOperatingLatencyMs.p95 <= 80, JSON.stringify(report.summary));
+  assert.ok(report.summary.preFaultAvailableFaultToTripMs.p95 <= 160, JSON.stringify(report.summary));
+  assert.ok(Number.isFinite(report.summary.faultToTripMs.p95), JSON.stringify(report.summary));
+
+  const eligibleOperated = report.replays.filter((replay) => replay.dependabilityEligible && replay.operated);
+  assert.ok(eligibleOperated.length > 0);
+  for (const replay of eligibleOperated) {
+    assert.ok(Number.isFinite(replay.faultToTripMs), JSON.stringify(replay));
+    assert.ok(Number.isFinite(replay.operatingPermissionStartMs), JSON.stringify(replay));
+    assert.ok(Number.isFinite(replay.qualifiedOperatingLatencyMs), JSON.stringify(replay));
+    assert.ok(replay.qualifiedOperatingLatencyMs <= replay.faultToTripMs, JSON.stringify(replay));
+  }
 
   const classes = new Set(report.replays.map((replay) => replay.inhibitionClass));
   assert.ok(classes.has('DEPENDABILITY_ELIGIBLE'), JSON.stringify(report.replays, null, 2));
@@ -49,5 +60,7 @@ test('P7 dependability smoke separates eligible trips, communication inhibition,
   const markdown = evidenceQualifiedDependabilityMarkdown(report);
   assert.match(markdown, /Missed eligible trips: 0/);
   assert.match(markdown, /Alignment-inhibited:/);
+  assert.match(markdown, /Qualified operating latency/);
+  assert.match(markdown, /Full fault-to-trip/);
   assert.match(markdown, /Safety-invariant violation frames: 0/);
 });
