@@ -12,6 +12,7 @@ const RECOVERY_QUALIFIED_PHASE_ORDER = Object.freeze([
   'partial-recovery',
   'deceptive-recovery',
   'jitter-storm',
+  'pre-release-recovery',
   'asymmetric-route-flip',
   'high-through-current-release',
   'post-event-settle'
@@ -40,6 +41,25 @@ function phaseByName(episode, name) {
   return phase;
 }
 
+function makeCleanRecoveryPhase(source, sign) {
+  const recovery = structuredClone(source);
+  recovery.name = 'pre-release-recovery';
+  recovery.durationMs = 460;
+  recovery.recoveryOpportunity = true;
+  recovery.preRelease = true;
+  recovery.patch.asymmetryMs = sign * 0.06;
+  recovery.patch.jitterMs = 0.035;
+  recovery.patch.packetLossPct = 0;
+  recovery.patch.burstLossPct = 0;
+  recovery.patch.duplicatePct = 0;
+  recovery.patch.reorderPct = 0;
+  recovery.patch.corruptionPct = 0;
+  recovery.patch.maxConsecutiveLossFrames = 8;
+  recovery.patch.maxReceiverQueueFrames = 12;
+  recovery.patch.packetAbsoluteAgeMs = 80;
+  return recovery;
+}
+
 /**
  * Convert the base P5 schedule into a recovery-qualified rare-event sequence.
  * The relay must first receive enough healthy evidence to reopen. Only then is a
@@ -61,9 +81,6 @@ export function qualifyStressScheduleForRecovery(baseSchedule) {
       ? sign * Math.max(11.2, Math.abs(episode.stressAsymmetryMs))
       : sign * Math.min(4.2, Math.max(2.2, Math.abs(episode.stressAsymmetryMs)));
 
-    // Communication-supervised recovery requires two sustained-good stages.
-    // Provide enough clean evidence for that process instead of starting the
-    // next disturbance while the relay is still intentionally blocked.
     deceptiveRecovery.durationMs = Math.max(520, deceptiveRecovery.durationMs);
     deceptiveRecovery.patch.asymmetryMs = sign * 0.08;
     deceptiveRecovery.patch.jitterMs = 0.04;
@@ -74,9 +91,9 @@ export function qualifyStressScheduleForRecovery(baseSchedule) {
     deceptiveRecovery.patch.corruptionPct = 0;
     deceptiveRecovery.patch.packetAbsoluteAgeMs = 80;
 
-    // The pre-release storm remains unpleasant but not hard-invalid. It creates
-    // estimator and supervision history without consuming the final permission
-    // opportunity with a permanent block.
+    // Severe jitter follows the first recovery but remains below hard-invalid
+    // thresholds. A second healthy burst then gives each policy a fair chance to
+    // reopen through its own state machine before the route asymmetry changes.
     jitterStorm.durationMs = Math.min(100, Math.max(60, jitterStorm.durationMs));
     jitterStorm.patch.asymmetryMs = moderateAsymmetryMs;
     jitterStorm.patch.jitterMs = Math.min(0.95, Math.max(0.55, jitterStorm.patch.jitterMs));
@@ -89,10 +106,11 @@ export function qualifyStressScheduleForRecovery(baseSchedule) {
     jitterStorm.patch.maxReceiverQueueFrames = 12;
     jitterStorm.patch.packetAbsoluteAgeMs = 80;
 
-    // Apply the decisive asymmetry as a fast route redistribution after the
-    // jitter history and immediately before the high-current phase. This avoids
-    // giving the supervisor another full secure/block cycle between the route
-    // change and the actual unwanted-operation opportunity.
+    episode.phases.push(makeCleanRecoveryPhase(deceptiveRecovery, sign));
+
+    // The decisive one-way redistribution is placed immediately after the final
+    // healthy burst and immediately before high current. RTT can remain plausible
+    // although the forward/return split has changed sharply.
     routeFlip.durationMs = episode.criticalOpportunity ? 20 : 40;
     routeFlip.patch.asymmetryMs = releaseAsymmetryMs;
     routeFlip.patch.jitterMs = 0.05;
@@ -167,8 +185,8 @@ export function runRecoveryQualifiedStressCampaign(options = {}) {
       replayCount: replays.length,
       totalEpisodeExposures: replays.length * episodes,
       stepMs: Number(merged.stepMs),
-      methodology: 'Stateful recovery-qualified exposure: link flapping and packet disorder, partial recovery, sustained deceptive recovery, bounded jitter history, rapid one-way asymmetry redistribution, then high through/external current.',
-      recoveryQualification: 'The clean recovery phase is long enough for generic supervised recovery before the asymmetry shock is applied.',
+      methodology: 'Stateful recovery-qualified exposure: link flapping and packet disorder, partial recovery, sustained recovery, severe jitter, a second healthy burst, rapid one-way asymmetry redistribution, then high through/external current.',
+      recoveryQualification: 'Two clean recovery phases allow generic supervised policies to reopen through their own state machines before the final asymmetry shock.',
       accelerationNotice: 'Healthy idle intervals are compressed into equivalent exposure time. Protection timers and estimator state are advanced only through explicitly simulated stress phases.',
       safetyBoundary: 'No operation is forced. Ground truth is evaluator-only and cannot affect alignment, confidence, protection permission, Idiff, persistence, or trip.',
       vendorNotice: 'Profiles are generic research policies and do not reproduce or claim equivalence with any manufacturer relay algorithm.',
