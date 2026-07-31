@@ -16,7 +16,7 @@ concurrency:
 jobs:
   validate:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -34,6 +34,13 @@ jobs:
         with:
           name: line-differential-relay-lab-validation-smoke
           path: artifacts/validation
+          if-no-files-found: error
+          retention-days: 14
+      - name: Upload long-horizon stress smoke report
+        uses: actions/upload-artifact@v7
+        with:
+          name: line-differential-relay-lab-long-horizon-stress-smoke
+          path: artifacts/long-horizon-stress
           if-no-files-found: error
           retention-days: 14
       - name: Upload production build
