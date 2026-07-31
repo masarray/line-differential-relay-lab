@@ -27,12 +27,7 @@ function channel(overrides = {}) {
 }
 
 test('coherent polarity reversal freezes the last trusted timing correction', () => {
-  const config = {
-    ...createDefaultConfig(),
-    algorithm: ALGORITHM_MODES.SMART_TRACKING,
-    trackWindowMs: 4,
-    trackerMaxSlewMs: 0.5
-  };
+  const config = { ...createDefaultConfig(), algorithm: ALGORITHM_MODES.SMART_TRACKING, trackWindowMs: 4, trackerMaxSlewMs: 0.5 };
   const local = sineSeries(480, 1);
   const remoteInternal = shiftSeries(sineSeries(480, 1), -12.8);
   const trustedCorrectionMs = 0.72;
@@ -41,15 +36,8 @@ test('coherent polarity reversal freezes the last trusted timing correction', ()
     remoteReceived: remoteInternal,
     config,
     channel: channel(),
-    trackerState: {
-      initialized: true,
-      correctionMs: trustedCorrectionMs,
-      velocityMs: 0.18,
-      heldFrames: 0,
-      electricalHoldFrames: 0
-    }
+    trackerState: { initialized: true, correctionMs: trustedCorrectionMs, velocityMs: 0.18, heldFrames: 0, electricalHoldFrames: 0 }
   });
-
   assert.equal(result.tracker.electricalHold, true);
   assert.equal(result.tracker.source, 'ELECTRICAL_HOLD');
   assert.equal(result.tracker.measurementAccepted, false);
@@ -58,12 +46,7 @@ test('coherent polarity reversal freezes the last trusted timing correction', ()
 });
 
 test('normal anti-polarity through-current remains available for timing adaptation', () => {
-  const config = {
-    ...createDefaultConfig(),
-    algorithm: ALGORITHM_MODES.SMART_TRACKING,
-    trackWindowMs: 4,
-    trackerMaxSlewMs: 0.5
-  };
+  const config = { ...createDefaultConfig(), algorithm: ALGORITHM_MODES.SMART_TRACKING, trackWindowMs: 4, trackerMaxSlewMs: 0.5 };
   const local = sineSeries(480, 1);
   const remoteThrough = shiftSeries(sineSeries(480, -1), -15.2);
   const result = alignRemote({
@@ -71,15 +54,8 @@ test('normal anti-polarity through-current remains available for timing adaptati
     remoteReceived: remoteThrough,
     config,
     channel: channel({ rttStepMs: 0.8 }),
-    trackerState: {
-      initialized: true,
-      correctionMs: 0.1,
-      velocityMs: 0,
-      heldFrames: 0,
-      electricalHoldFrames: 0
-    }
+    trackerState: { initialized: true, correctionMs: 0.1, velocityMs: 0, heldFrames: 0, electricalHoldFrames: 0 }
   });
-
   assert.equal(result.tracker.electricalHold, false);
   assert.notEqual(result.tracker.source, 'ELECTRICAL_HOLD');
 });
@@ -96,20 +72,24 @@ test('smart tracker preserves internal-fault operation after a healthy warm-up',
     reorderExtraDelayMs: 2.5,
     packetAbsoluteAgeMs: 30
   });
-
   for (let index = 0; index < 20; index += 1) simulator.step(20);
   simulator.setConfig({ scenario: ELECTRICAL_SCENARIOS.INTERNAL_FAULT });
-
   let operated = false;
   let electricalHoldObserved = false;
+  let diagnostic;
   for (let index = 0; index < 32; index += 1) {
     const frame = simulator.step(20);
     operated ||= frame.protection.operate;
     electricalHoldObserved ||= frame.confidence.reasons.includes('ELECTRICAL_TRANSIENT_HOLD');
+    diagnostic = {
+      protection: frame.protection,
+      differential: frame.differential,
+      alignment: frame.alignment,
+      confidence: frame.confidence
+    };
   }
-
-  assert.equal(electricalHoldObserved, true);
-  assert.equal(operated, true);
+  assert.equal(electricalHoldObserved, true, JSON.stringify(diagnostic));
+  assert.equal(operated, true, JSON.stringify(diagnostic));
 });
 
 test('through-current packet disorder remains secure without unwanted operation', () => {
@@ -131,8 +111,18 @@ test('through-current packet disorder remains secure without unwanted operation'
     routeStepDeltaMs: 3.8,
     routeRampMs: 60
   });
-
   let operated = false;
-  for (let index = 0; index < 70; index += 1) operated ||= simulator.step(20).protection.operate;
-  assert.equal(operated, false);
+  let operateFrame;
+  for (let index = 0; index < 70; index += 1) {
+    const frame = simulator.step(20);
+    if (frame.protection.operate && !operateFrame) operateFrame = {
+      protection: frame.protection,
+      differential: frame.differential,
+      alignment: frame.alignment,
+      channel: frame.channel,
+      confidence: frame.confidence
+    };
+    operated ||= frame.protection.operate;
+  }
+  assert.equal(operated, false, JSON.stringify(operateFrame));
 });
