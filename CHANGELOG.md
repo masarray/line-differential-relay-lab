@@ -12,6 +12,25 @@ The project follows Semantic Versioning.
 - Side-by-side deterministic algorithm comparison
 - Expanded CT saturation and sequence-component models
 
+## [0.5.0] - 2026-07-31
+
+### Added
+
+- Packet/frame-driven communication plant with sequence identity and measured receiver reconstruction
+- Packet-level random loss, deterministic burst loss, integrity rejection, duplicate detection, and bounded out-of-order recovery
+- Receiver reorder-depth, queue-depth, late-frame, sequence-gap, consecutive-loss, and packet-age supervision
+- Deterministic one-way route step or ramp with route-transition indication
+- Packetization and serialization latency in the receiver-observable alignment path
+- New packet controls and presets for duplicate/reorder disorder and communication route switching
+- Seven P2 regression tests covering packet gaps, duplicate rejection, bounded reordering, reorder overflow, queue overflow, route steps, and unwanted-trip security
+
+### Changed
+
+- Remote waveform data is now reconstructed from accepted packet frames instead of independent sample-drop probabilities
+- Channel confidence and alignment uncertainty now include receiver packet-order and queue evidence
+- Hard-invalid communication now includes receiver queue overflow, excessive consecutive frame loss, packet age, and integrity failure
+- Event trace and explanation rail now expose packet sequence gaps, reordering, duplicate discard, and route transitions
+
 ## [0.4.0] - 2026-07-31
 
 ### Added
