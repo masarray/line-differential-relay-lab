@@ -72,7 +72,13 @@ function arraysToPlain(frame) {
 }
 
 function emptyTrackerState() {
-  return { initialized: false, correctionMs: 0, velocityMs: 0, heldFrames: 0 };
+  return {
+    initialized: false,
+    correctionMs: 0,
+    velocityMs: 0,
+    heldFrames: 0,
+    electricalHoldFrames: 0
+  };
 }
 
 function packetSignature(receiver) {
@@ -221,8 +227,9 @@ export class Simulator {
     const protectionValidFraction = finitePairFraction(local, alignment.alignedProtection, cycleStart, cycleEnd);
     const pickupPu = this.config.minPickupPu + this.config.restraintSlope * irestraintRms;
     const directionCorrelation = normalizedCorrelation(local, alignment.alignedProtection, cycleStart, cycleEnd);
+    const operateRatio = idiffValidatedRms / Math.max(pickupPu, 0.01);
     const faultEvidence = clamp(
-      ((directionCorrelation + 1) / 2) * clamp(idiffValidatedRms / Math.max(pickupPu, 0.01), 0, 1.4),
+      ((directionCorrelation + 1) / 2) * clamp(operateRatio, 0, 1.4),
       0,
       1
     );
@@ -238,18 +245,45 @@ export class Simulator {
     const protection = this.stateMachine.update({ config: this.config, confidence, deltaMs: scaledDeltaMs });
 
     const measuredEvidenceValid = protectionValidFraction >= this.config.minProtectionValidFraction;
+    const electricalHold = this.config.algorithm === ALGORITHM_MODES.SMART_TRACKING && alignment.tracker.electricalHold;
+    const directionalEvidenceValid = directionCorrelation > 0.08 && faultEvidence > 0.56;
+    const strongInternalEvidence =
+      electricalHold &&
+      directionCorrelation > 0.34 &&
+      operateRatio > 1.35 &&
+      protectionValidFraction >= Math.max(this.config.minProtectionValidFraction, 0.9) &&
+      confidence.waveform.score > 58 &&
+      !confidence.hardInvalid;
+
     const secureThreshold = pickupPu * this.config.securePickupMultiplier;
     let threshold = pickupPu;
     let tripAllowed = protection.permission !== 'BLOCKED' && measuredEvidenceValid && !confidence.hardInvalid;
     let requiredPersistenceMs = 20;
 
+    if (this.config.algorithm === ALGORITHM_MODES.SMART_TRACKING && !strongInternalEvidence) {
+      tripAllowed = tripAllowed && directionalEvidenceValid;
+      threshold *= 1.06;
+      requiredPersistenceMs = 30;
+    }
+
     if (protection.state === PROTECTION_STATES.WATCH) {
-      threshold *= 1.15;
-      requiredPersistenceMs = 35;
+      if (strongInternalEvidence) {
+        threshold = pickupPu * 1.08;
+        requiredPersistenceMs = 30;
+      } else {
+        threshold *= 1.15;
+        requiredPersistenceMs = Math.max(requiredPersistenceMs, 35);
+      }
     } else if (protection.state === PROTECTION_STATES.SECURE) {
-      threshold = secureThreshold;
-      tripAllowed = tripAllowed && faultEvidence > 0.78 && confidence.waveform.score > 55;
-      requiredPersistenceMs = 45;
+      if (strongInternalEvidence) {
+        threshold = pickupPu * 1.12;
+        tripAllowed = protection.permission !== 'BLOCKED' && measuredEvidenceValid && !confidence.hardInvalid;
+        requiredPersistenceMs = 30;
+      } else {
+        threshold = secureThreshold;
+        tripAllowed = tripAllowed && faultEvidence > 0.78 && confidence.waveform.score > 55;
+        requiredPersistenceMs = 45;
+      }
     } else if (protection.state === PROTECTION_STATES.RECOVERY) {
       tripAllowed = false;
     }
@@ -293,7 +327,8 @@ export class Simulator {
       idiffValidatedRms,
       pickupPu,
       decision,
-      receiver
+      receiver,
+      strongInternalEvidence
     });
     const groundTruthResidualMs =
       plantChannel.forwardMs + this.config.packetSerializationMs + plantChannel.clockErrorMs - alignment.estimatedShiftMs;
@@ -345,6 +380,7 @@ export class Simulator {
         estimatorAgreementMs: round(alignment.tracker.estimatorAgreementMs, 4),
         trajectoryInnovationMs: round(alignment.tracker.trajectoryInnovationMs, 4),
         measurementAccepted: alignment.tracker.measurementAccepted,
+        electricalHold: alignment.tracker.electricalHold,
         trackerSource: alignment.tracker.source,
         shortCorrectionMs: round((alignment.tracker.short.refinedLagSamples ?? alignment.tracker.short.lagSamples) / samplesPerMs, 4),
         stabilityCorrectionMs: round((alignment.tracker.stable.refinedLagSamples ?? alignment.tracker.stable.lagSamples) / samplesPerMs, 4),
@@ -360,6 +396,10 @@ export class Simulator {
         activeThresholdPu: round(threshold, 4),
         marginPu: round(threshold - idiffValidatedRms, 4),
         faultEvidence: round(faultEvidence, 4),
+        directionCorrelation: round(directionCorrelation, 4),
+        operateRatio: round(operateRatio, 4),
+        directionalEvidenceValid,
+        strongInternalEvidence,
         protectionValidFraction: round(protectionValidFraction, 4),
         measuredEvidenceValid
       },
@@ -376,7 +416,7 @@ export class Simulator {
   }
 }
 
-function explainFrame({ config, alignment, confidence, protection, protectionValidFraction, idiffValidatedRms, pickupPu, decision, receiver }) {
+function explainFrame({ config, alignment, confidence, protection, protectionValidFraction, idiffValidatedRms, pickupPu, decision, receiver, strongInternalEvidence }) {
   const cause = confidence.reasons[0] ?? 'QUALITY_NOMINAL';
   let changed = 'Packet sequence, communication timing, and alignment remain inside the educational quality limits.';
   if (cause === 'PACKET_INTEGRITY_FAIL') changed = 'A received packet failed the integrity gate.';
@@ -390,6 +430,7 @@ function explainFrame({ config, alignment, confidence, protection, protectionVal
   if (cause === 'RTT_UNSTABLE') changed = 'Measured round-trip delay is changing faster than the trusted timing trajectory.';
   if (cause === 'PACKET_LOSS_BURST') changed = 'A burst of measured remote packets is missing or late.';
   if (cause === 'TIME_SYNC_INVALID') changed = 'The remote absolute time source is not valid.';
+  if (cause === 'ELECTRICAL_TRANSIENT_HOLD') changed = 'A coherent electrical polarity transition froze timing adaptation at the last trusted correction.';
   if (cause === 'RTT_ALIGNMENT_DISAGREEMENT') changed = 'Waveform evidence disagrees with the RTT/2 alignment estimate.';
   if (cause === 'ESTIMATOR_DISAGREEMENT') changed = 'Short-horizon and stability waveform estimators do not agree.';
   if (cause === 'TRACKING_MEASUREMENT_HELD') changed = 'The tracker rejected the new lag measurement and held its bounded trajectory.';
@@ -410,11 +451,13 @@ function explainFrame({ config, alignment, confidence, protection, protectionVal
     ? 'Remote data is not permitted to initiate 87L tripping.'
     : protectionValidFraction < config.minProtectionValidFraction
       ? '87L trip evidence is inhibited until measured-valid sample coverage recovers.'
-      : protection.state === PROTECTION_STATES.SECURE
-        ? `87L uses raised security for ${protection.secureRemainingMs.toFixed(0)} ms while packet and waveform evidence are revalidated.`
-        : decision === 'OPERATE'
-          ? `Measured-only Idiff ${idiffValidatedRms.toFixed(2)} pu exceeds the active ${pickupPu.toFixed(2)} pu characteristic with sufficient persistence.`
-          : '87L remains available under the current protection permission.';
+      : strongInternalEvidence
+        ? 'Strong measured directional differential evidence is allowed through the supervised electrical path while timing adaptation remains frozen.'
+        : protection.state === PROTECTION_STATES.SECURE
+          ? `87L uses raised security for ${protection.secureRemainingMs.toFixed(0)} ms while packet and waveform evidence are revalidated.`
+          : decision === 'OPERATE'
+            ? `Measured-only Idiff ${idiffValidatedRms.toFixed(2)} pu exceeds the active ${pickupPu.toFixed(2)} pu characteristic with sufficient persistence.`
+            : '87L remains available under the current protection permission.';
 
   return { changed, why, action };
 }
