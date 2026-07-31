@@ -6,9 +6,14 @@
 const BENCHMARK_WORKFLOW_URL =
   'https://github.com/masarray/line-differential-relay-lab/actions/workflows/long-horizon-stress.yml';
 
+const MODE_SWITCH_SETTLE_MS = 800;
+
 const styles = `
 .relay-device[data-relay-mode="smart-tracking"][data-relay-state="secure"] .relay-lcd{
   background-color:var(--relay-lcd)
+}
+.relay-device[data-mode-switch-pending="true"][data-relay-state="secure"] .relay-lcd{
+  background-color:var(--relay-lcd)!important
 }
 .benchmark-access-button{
   width:auto;
@@ -38,11 +43,49 @@ const styles = `
 function installSmartModePresentation() {
   const device = document.getElementById('virtual-relay');
   const tabs = document.querySelector('.algorithm-tabs');
+  const clock = document.getElementById('relay-lcd-clock');
   if (!device || !tabs) return;
+
+  let settleTimer = null;
+  let clockAtSwitch = '';
+
+  const clearPending = () => {
+    device.removeAttribute('data-mode-switch-pending');
+    if (settleTimer !== null) {
+      window.clearTimeout(settleTimer);
+      settleTimer = null;
+    }
+  };
+
+  const beginModeSwitch = (button) => {
+    if (!(button instanceof HTMLElement)) return;
+    const algorithm = button.dataset.algorithm;
+    if (!algorithm) return;
+
+    // Update the faceplate mode before the application click handler changes
+    // the active tab. This prevents one paint using the old secure-state color.
+    device.dataset.relayMode = algorithm;
+    device.dataset.modeSwitchPending = 'true';
+    clockAtSwitch = clock?.textContent ?? '';
+
+    if (settleTimer !== null) window.clearTimeout(settleTimer);
+    settleTimer = window.setTimeout(clearPending, MODE_SWITCH_SETTLE_MS);
+  };
+
+  const findAlgorithmButton = (event) => {
+    const target = event.target;
+    return target instanceof Element ? target.closest('[data-algorithm]') : null;
+  };
+
+  // Capture phase runs before app.js handles the algorithm change.
+  tabs.addEventListener('pointerdown', (event) => beginModeSwitch(findAlgorithmButton(event)), true);
+  tabs.addEventListener('click', (event) => beginModeSwitch(findAlgorithmButton(event)), true);
 
   const syncRelayMode = () => {
     const active = tabs.querySelector('[data-algorithm].is-active');
-    device.dataset.relayMode = active?.dataset.algorithm ?? '';
+    if (!device.dataset.modeSwitchPending) {
+      device.dataset.relayMode = active?.dataset.algorithm ?? '';
+    }
   };
 
   new MutationObserver(syncRelayMode).observe(tabs, {
@@ -50,6 +93,16 @@ function installSmartModePresentation() {
     attributes: true,
     attributeFilter: ['class']
   });
+
+  if (clock) {
+    new MutationObserver(() => {
+      if (device.dataset.modeSwitchPending === 'true' && clock.textContent !== clockAtSwitch) {
+        clearPending();
+        syncRelayMode();
+      }
+    }).observe(clock, { childList: true, characterData: true, subtree: true });
+  }
+
   syncRelayMode();
 }
 
