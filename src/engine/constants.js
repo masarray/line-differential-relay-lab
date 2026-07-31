@@ -23,6 +23,7 @@ export const PROTECTION_STATES = Object.freeze({
 
 export const SECURITY_POLICIES = Object.freeze({
   COMMUNICATION_SUPERVISED: 'communication-supervised',
+  COMMUNICATION_ONLY_SUPERVISED: 'communication-only-supervised',
   FIXED_OBSERVATION_WINDOW: 'fixed-observation-window'
 });
 
