@@ -80,6 +80,12 @@ export const DEFAULT_CONFIG = Object.freeze({
   minPickupPu: 0.22,
   restraintSlope: 0.3,
   securePickupMultiplier: 1.55,
+  degradedRecoveryMs: 60,
+  degradedMinChannelScore: 64,
+  degradedMinAlignmentScore: 58,
+  degradedMinWaveformScore: 68,
+  degradedMaxUncertaintyMs: 0.85,
+  degradedMaxPredictedFraction: 0.08,
   simulationSpeed: 1
 });
 
