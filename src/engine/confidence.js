@@ -44,6 +44,7 @@ export function calculateConfidence({ config, channel, alignment, validFraction,
   const agreementMs = Number(tracker.estimatorAgreementMs ?? 0);
   const innovationMs = Math.abs(Number(tracker.trajectoryInnovationMs ?? 0));
   const measurementAccepted = tracker.measurementAccepted !== false;
+  const electricalHold = tracker.electricalHold === true;
 
   const trackerPenalty = config.algorithm === ALGORITHM_MODES.SMART_TRACKING
     ? (2 - shortPeak - stablePeak) * 18 +
@@ -51,7 +52,8 @@ export function calculateConfidence({ config, channel, alignment, validFraction,
       Math.max(0, agreementMs - config.trackerAgreementMs * 0.35) * 18 +
       Math.max(0, innovationMs - config.trackerMaxSlewMs * 0.5) * 12 +
       (tracker.atSearchBoundary ? 12 : 0) +
-      (!measurementAccepted ? 18 : 0) +
+      (!measurementAccepted && !electricalHold ? 18 : 0) +
+      (electricalHold ? 4 : 0) +
       (tracker.innovationClamped ? 7 : 0)
     : 0;
   const gpsPenalty = config.algorithm === ALGORITHM_MODES.GPS && !channel.timeSyncValid ? 58 : 0;
@@ -74,13 +76,16 @@ export function calculateConfidence({ config, channel, alignment, validFraction,
   if (duplicateFrames > 0) reasons.push('DUPLICATE_FRAME_DISCARDED');
   if (channel.routeTransitionActive) reasons.push('ROUTE_TRANSITION');
   if ((channel.rttJitterMs ?? 0) > 0.6 || (channel.rttStepMs ?? 0) > 1) reasons.push('RTT_UNSTABLE');
+  if (config.algorithm === ALGORITHM_MODES.SMART_TRACKING && electricalHold) {
+    reasons.push('ELECTRICAL_TRANSIENT_HOLD');
+  }
   if (config.algorithm === ALGORITHM_MODES.SMART_TRACKING && Math.abs(alignment.trackingCorrectionMs) > 0.45) {
     reasons.push('RTT_ALIGNMENT_DISAGREEMENT');
   }
-  if (config.algorithm === ALGORITHM_MODES.SMART_TRACKING && agreementMs > config.trackerAgreementMs) {
+  if (config.algorithm === ALGORITHM_MODES.SMART_TRACKING && agreementMs > config.trackerAgreementMs && !electricalHold) {
     reasons.push('ESTIMATOR_DISAGREEMENT');
   }
-  if (config.algorithm === ALGORITHM_MODES.SMART_TRACKING && !measurementAccepted) {
+  if (config.algorithm === ALGORITHM_MODES.SMART_TRACKING && !measurementAccepted && !electricalHold) {
     reasons.push('TRACKING_MEASUREMENT_HELD');
   }
   if (
@@ -92,9 +97,10 @@ export function calculateConfidence({ config, channel, alignment, validFraction,
   if (
     config.algorithm === ALGORITHM_MODES.SMART_TRACKING &&
     (tracker.ambiguity ?? 1) > 0.985 &&
-    (tracker.peakScore ?? 0) < 0.92
+    (tracker.peakScore ?? 0) < 0.92 &&
+    !electricalHold
   ) reasons.push('TRACKING_AMBIGUOUS');
-  if (config.algorithm === ALGORITHM_MODES.SMART_TRACKING && tracker.atSearchBoundary) {
+  if (config.algorithm === ALGORITHM_MODES.SMART_TRACKING && tracker.atSearchBoundary && !electricalHold) {
     reasons.push('TRACKER_AT_BOUNDARY');
   }
   if (protectionValidFraction < config.minProtectionValidFraction) reasons.push('INSUFFICIENT_MEASURED_DATA');
