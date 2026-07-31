@@ -1,15 +1,17 @@
 {
   "name": "line-differential-relay-lab",
-  "version": "0.5.0",
+  "version": "0.6.0",
   "private": true,
-  "description": "Industrial real-time 87L laboratory with packet-driven communication anomalies, supervised security, and blind waveform tracking.",
+  "description": "Industrial real-time 87L laboratory with packet-driven anomalies, blind waveform tracking, and deterministic Monte Carlo validation.",
   "type": "module",
   "scripts": {
     "dev": "node scripts/dev-server.mjs",
     "build": "node scripts/build.mjs",
     "test": "node --test",
-    "check": "node --check src/app.js && node --check src/worker/simulation-worker.js && node --check src/engine/simulation.js",
-    "validate": "npm run check && npm test && npm run build"
+    "check": "node --check src/app.js && node --check src/worker/simulation-worker.js && node --check src/engine/simulation.js && node --check src/validation/monte-carlo.js && node --check scripts/monte-carlo.mjs",
+    "benchmark": "node scripts/monte-carlo.mjs",
+    "benchmark:smoke": "node scripts/monte-carlo.mjs --smoke --compact --output artifacts/validation",
+    "validate": "npm run check && npm test && npm run benchmark:smoke && npm run build"
   },
   "keywords": [
     "87l",
@@ -19,6 +21,7 @@
     "relay-simulation",
     "waveform-tracking",
     "communication-delay",
+    "monte-carlo-validation",
     "github-pages"
   ],
   "author": "Ari / SonkuPik Engineering",
