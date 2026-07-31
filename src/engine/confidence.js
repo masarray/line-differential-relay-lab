@@ -51,9 +51,8 @@ export function calculateConfidence({ config, channel, alignment, validFraction,
       (2 - shortCurvature - stableCurvature) * 4 +
       Math.max(0, agreementMs - config.trackerAgreementMs * 0.35) * 18 +
       Math.max(0, innovationMs - config.trackerMaxSlewMs * 0.5) * 12 +
-      (tracker.atSearchBoundary ? 12 : 0) +
+      (tracker.atSearchBoundary && !electricalHold ? 12 : 0) +
       (!measurementAccepted && !electricalHold ? 18 : 0) +
-      (electricalHold ? 4 : 0) +
       (tracker.innovationClamped ? 7 : 0)
     : 0;
   const gpsPenalty = config.algorithm === ALGORITHM_MODES.GPS && !channel.timeSyncValid ? 58 : 0;
