@@ -1,4 +1,10 @@
-import { ALGORITHM_MODES, ELECTRICAL_SCENARIOS, PROTECTION_STATES, createDefaultConfig } from './constants.js';
+import {
+  ALGORITHM_MODES,
+  ELECTRICAL_SCENARIOS,
+  PROTECTION_STATES,
+  SECURITY_POLICIES,
+  createDefaultConfig
+} from './constants.js';
 import { createPacketChannelWindow } from './channel-model.js';
 import { alignRemote } from './algorithms.js';
 import { calculateConfidence } from './confidence.js';
@@ -254,6 +260,8 @@ export class Simulator {
       protectionValidFraction >= Math.max(this.config.minProtectionValidFraction, 0.9) &&
       confidence.waveform.score > 58 &&
       !confidence.hardInvalid;
+    const communicationOnlySupervision =
+      this.config.securityPolicy === SECURITY_POLICIES.COMMUNICATION_ONLY_SUPERVISED;
 
     const secureThreshold = pickupPu * this.config.securePickupMultiplier;
     let threshold = pickupPu;
@@ -281,7 +289,8 @@ export class Simulator {
         requiredPersistenceMs = 30;
       } else {
         threshold = secureThreshold;
-        tripAllowed = tripAllowed && faultEvidence > 0.78 && confidence.waveform.score > 55;
+        tripAllowed = tripAllowed && faultEvidence > 0.78 &&
+          (communicationOnlySupervision || confidence.waveform.score > 55);
         requiredPersistenceMs = 45;
       }
     } else if (protection.state === PROTECTION_STATES.RECOVERY) {

@@ -21,10 +21,17 @@ export const PROTECTION_STATES = Object.freeze({
   RECOVERY: 'RECOVERY VALIDATION'
 });
 
+export const SECURITY_POLICIES = Object.freeze({
+  COMMUNICATION_SUPERVISED: 'communication-supervised',
+  COMMUNICATION_ONLY_SUPERVISED: 'communication-only-supervised',
+  FIXED_OBSERVATION_WINDOW: 'fixed-observation-window'
+});
+
 export const DEFAULT_CONFIG = Object.freeze({
   schemaVersion: 1,
   seed: 61850,
   algorithm: ALGORITHM_MODES.PING_PONG,
+  securityPolicy: SECURITY_POLICIES.COMMUNICATION_SUPERVISED,
   scenario: ELECTRICAL_SCENARIOS.THROUGH,
   frequencyHz: 50,
   sampleRateHz: 4000,

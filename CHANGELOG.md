@@ -12,6 +12,34 @@ The project follows Semantic Versioning.
 - Side-by-side deterministic algorithm comparison in the browser
 - Expanded CT saturation and sequence-component models
 
+## [0.8.0] - 2026-07-31
+
+### Added
+
+- Accelerated long-horizon rare-event benchmark with one persistent simulator state across repeated communication episodes
+- Recovery-qualified sequence covering link flapping, partial recovery, sustained healthy bursts, severe jitter history, constant-RTT one-way delay redistribution, and high through/external current
+- Generic `Communication-only supervised RTT/2` comparator for studying the blind region where communication quality recovers while RTT/2 alignment remains wrong
+- Generic fixed observation-window research policy with hard-invalid communication veto
+- Episode, equivalent-exposure, permission-reopen, state-churn, availability, near-miss, stale-correction, post-recovery alignment, and cumulative-failure metrics
+- Deterministic JSON failure artifacts and replay commands for every discovered unwanted operation
+- Manual GitHub Actions workflow for configurable long-horizon campaigns
+- P5 regression tests for deterministic scheduling, no forced/internal-fault target, policy recovery boundaries, fixed-window expiry, and hard-invalid vetoes
+
+### Changed
+
+- CI now runs a compact P5 stress campaign and requires deterministic unwanted-operation counterexamples for both baseline security comparators
+- Security-policy configuration now distinguishes full communication/alignment supervision, communication-only supervision, and fixed observation-window research behavior
+- Long-horizon reports explicitly pair unwanted-operation security with protection availability; zero trips with zero availability is not classified as success
+- PWA and package release metadata updated to v0.8.0
+
+### Validation snapshot
+
+- 46 automated tests passed
+- Conventional RTT/2: unwanted operation found in 2/2 smoke seeds
+- Communication-only supervised RTT/2: unwanted operation found in 2/2 smoke seeds; median first occurrence near episode 8
+- Fixed observation window: unwanted operation found in 2/2 smoke seeds; median first occurrence near episode 5
+- Waveform-assisted security: zero unwanted operations in the same finite smoke budget, but zero availability under this destructive stress profile; no superiority claim is made
+
 ## [0.7.0] - 2026-07-31
 
 ### Added
