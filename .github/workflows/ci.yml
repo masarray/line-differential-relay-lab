@@ -43,6 +43,20 @@ jobs:
           path: artifacts/long-horizon-stress
           if-no-files-found: error
           retention-days: 14
+      - name: Upload degraded dependability smoke report
+        uses: actions/upload-artifact@v7
+        with:
+          name: line-differential-relay-lab-degraded-dependability-smoke
+          path: artifacts/degraded-dependability
+          if-no-files-found: error
+          retention-days: 14
+      - name: Upload P7 reliability freeze report
+        uses: actions/upload-artifact@v7
+        with:
+          name: line-differential-relay-lab-p7-reliability-freeze
+          path: artifacts/reliability-freeze
+          if-no-files-found: error
+          retention-days: 30
       - name: Upload production build
         uses: actions/upload-artifact@v7
         with:
