@@ -27,13 +27,33 @@ function positiveInteger(value, fallback) {
   return Number.isFinite(parsed) && parsed > 0 ? Math.floor(parsed) : fallback;
 }
 
-function parseProfiles(value) {
+function parseProfileIds(value) {
   const supported = new Set(DEFAULT_STRESS_PROFILES.map((profile) => profile.id));
-  const profiles = value
+  const profileIds = value
     ? value.split(',').map((entry) => entry.trim()).filter((entry) => supported.has(entry))
     : DEFAULT_STRESS_OPTIONS.profiles;
-  if (profiles.length === 0) throw new Error('No supported long-horizon stress profiles selected.');
-  return profiles;
+  if (profileIds.length === 0) throw new Error('No supported long-horizon stress profiles selected.');
+  return profileIds;
+}
+
+function resolveExtremeProfiles(profileIds) {
+  return profileIds.map((profileId) => {
+    const base = DEFAULT_STRESS_PROFILES.find((profile) => profile.id === profileId);
+    if (!base) throw new Error(`Unsupported stress profile: ${profileId}`);
+    if (profileId !== STRESS_PROFILE_IDS.COMMUNICATION_SUPERVISED) return base;
+
+    // P5 intentionally uses a demanding but still bounded generic supervision
+    // profile. These are research settings, not a representation of any vendor.
+    return {
+      ...base,
+      settings: {
+        ...base.settings,
+        secureWindowMs: 120,
+        recoveryValidationMs: 160,
+        securePickupMultiplier: 1.25
+      }
+    };
+  });
 }
 
 const smoke = hasFlag('smoke');
@@ -41,7 +61,8 @@ const seeds = positiveInteger(readArgument('seeds'), smoke ? 2 : DEFAULT_STRESS_
 const episodes = positiveInteger(readArgument('episodes'), smoke ? 30 : DEFAULT_STRESS_OPTIONS.episodes);
 const seed = positiveInteger(readArgument('seed'), DEFAULT_STRESS_OPTIONS.seed);
 const stepMs = positiveInteger(readArgument('step-ms'), DEFAULT_STRESS_OPTIONS.stepMs);
-const profiles = parseProfiles(readArgument('profiles'));
+const profileIds = parseProfileIds(readArgument('profiles'));
+const profiles = resolveExtremeProfiles(profileIds);
 const includeReplayDetails = !hasFlag('compact');
 const stopAfterFirstTrip = hasFlag('stop-after-first-trip');
 const outputDirectory = resolve(process.cwd(), readArgument('output', 'artifacts/long-horizon-stress'));
@@ -96,7 +117,7 @@ if (hasFlag('require-baseline-failures')) {
   const requiredProfiles = [
     STRESS_PROFILE_IDS.COMMUNICATION_SUPERVISED,
     STRESS_PROFILE_IDS.FIXED_OBSERVATION_WINDOW
-  ].filter((profileId) => profiles.includes(profileId));
+  ].filter((profileId) => profileIds.includes(profileId));
   const missing = requiredProfiles.filter((profileId) => report.summary[profileId]?.failedRuns < 1);
   if (missing.length > 0) {
     throw new Error(`Stress budget found no unwanted-trip counterexample for: ${missing.join(', ')}`);
