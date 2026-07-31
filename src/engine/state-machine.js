@@ -1,4 +1,4 @@
-import { ALGORITHM_MODES, PROTECTION_STATES } from './constants.js';
+import { ALGORITHM_MODES, PROTECTION_STATES, SECURITY_POLICIES } from './constants.js';
 
 export class ProtectionStateMachine {
   constructor(config) {
@@ -10,6 +10,53 @@ export class ProtectionStateMachine {
     this.secureRemainingMs = config.secureWindowMs;
     this.goodEvidenceMs = 0;
     this.lastReason = 'QUALITY_NOMINAL';
+  }
+
+  updateFixedObservationWindow({ config, confidence, deltaMs }) {
+    const score = confidence.minimumScore;
+    const good = score >= 80;
+
+    switch (this.state) {
+      case PROTECTION_STATES.NORMAL:
+        this.secureRemainingMs = config.secureWindowMs;
+        if (score < 74) this.state = PROTECTION_STATES.SECURE;
+        break;
+      case PROTECTION_STATES.WATCH:
+        this.state = PROTECTION_STATES.SECURE;
+        this.secureRemainingMs = config.secureWindowMs;
+        this.goodEvidenceMs = 0;
+        break;
+      case PROTECTION_STATES.SECURE:
+        this.secureRemainingMs = Math.max(0, this.secureRemainingMs - deltaMs);
+        if (this.secureRemainingMs <= 0) {
+          // Generic fixed-window research policy: soft degradation is observed
+          // for a fixed period, then permission is released for one evaluation
+          // interval. Persistent bad evidence can start a new window on the next
+          // update. Hard-invalid communication is handled before this branch.
+          this.state = PROTECTION_STATES.NORMAL;
+          this.secureRemainingMs = config.secureWindowMs;
+          this.goodEvidenceMs = 0;
+        }
+        break;
+      case PROTECTION_STATES.BLOCKED:
+      case PROTECTION_STATES.RECOVERY:
+        if (good) {
+          this.goodEvidenceMs += deltaMs;
+          if (this.goodEvidenceMs >= config.recoveryValidationMs) {
+            this.state = PROTECTION_STATES.SECURE;
+            this.secureRemainingMs = config.secureWindowMs;
+            this.goodEvidenceMs = 0;
+          }
+        } else {
+          this.goodEvidenceMs = 0;
+        }
+        break;
+      default:
+        this.state = PROTECTION_STATES.NORMAL;
+        this.secureRemainingMs = config.secureWindowMs;
+    }
+
+    return this.snapshot();
   }
 
   update({ config, confidence, deltaMs }) {
@@ -27,6 +74,13 @@ export class ProtectionStateMachine {
       this.goodEvidenceMs = 0;
       this.secureRemainingMs = 0;
       return this.snapshot();
+    }
+
+    if (
+      config.algorithm === ALGORITHM_MODES.SECURE_WINDOW &&
+      config.securityPolicy === SECURITY_POLICIES.FIXED_OBSERVATION_WINDOW
+    ) {
+      return this.updateFixedObservationWindow({ config, confidence, deltaMs });
     }
 
     // A trusted electrical hold means the receiver and measured waveform agree
