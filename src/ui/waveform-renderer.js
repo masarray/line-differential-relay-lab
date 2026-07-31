@@ -11,6 +11,37 @@ function clamp(value, minimum, maximum) {
   return Math.max(minimum, Math.min(maximum, value));
 }
 
+export const WAVEFORM_DISPLAY_MODES = Object.freeze({
+  LIVE: 'live',
+  PERSIST: 'persist',
+  FREEZE: 'freeze'
+});
+
+export function normalizeWaveformDisplayMode(value) {
+  return Object.values(WAVEFORM_DISPLAY_MODES).includes(value)
+    ? value
+    : WAVEFORM_DISPLAY_MODES.LIVE;
+}
+
+export function persistenceOpacity(index, total) {
+  if (total <= 0) return 0;
+  const ratio = clamp((index + 1) / total, 0, 1);
+  return 0.05 + ratio * 0.23;
+}
+
+function cloneDisplayFrame(frame) {
+  if (!frame?.waveforms) return frame;
+  return {
+    ...frame,
+    waveforms: Object.fromEntries(
+      Object.entries(frame.waveforms).map(([key, values]) => [
+        key,
+        Array.isArray(values) ? values.slice() : values
+      ])
+    )
+  };
+}
+
 function plotGeometry(width) {
   const labelWidth = width < 720 ? 92 : 118;
   const valueWidth = width < 720 ? 68 : 88;
@@ -25,6 +56,10 @@ export class WaveformRenderer {
     this.canvas = canvas;
     this.context = canvas.getContext('2d', { alpha: false });
     this.frame = null;
+    this.liveFrame = null;
+    this.history = [];
+    this.displayMode = WAVEFORM_DISPLAY_MODES.LIVE;
+    this.maxPersistenceFrames = 9;
     this.cursorRatio = 0.76;
     this.pointerCanvasX = null;
     this.resizeObserver = new ResizeObserver(() => this.draw());
@@ -39,10 +74,43 @@ export class WaveformRenderer {
       this.cursorRatio = 0.76;
       this.draw();
     });
+    window.addEventListener('waveform-display-mode', (event) => {
+      this.setDisplayMode(event.detail?.mode);
+    });
+  }
+
+  setDisplayMode(requestedMode) {
+    const mode = normalizeWaveformDisplayMode(requestedMode);
+    if (mode === WAVEFORM_DISPLAY_MODES.FREEZE) {
+      if (this.displayMode !== WAVEFORM_DISPLAY_MODES.FREEZE && this.frame) {
+        this.frame = cloneDisplayFrame(this.frame);
+      }
+      this.displayMode = mode;
+      this.draw();
+      return;
+    }
+
+    this.displayMode = mode;
+    if (this.liveFrame) this.frame = this.liveFrame;
+    if (mode === WAVEFORM_DISPLAY_MODES.LIVE) {
+      this.history = [];
+    } else if (this.frame && this.history.length === 0) {
+      this.history.push(cloneDisplayFrame(this.frame));
+    }
+    this.draw();
   }
 
   setFrame(frame) {
+    this.liveFrame = frame;
+    if (this.displayMode === WAVEFORM_DISPLAY_MODES.FREEZE) return;
+
     this.frame = frame;
+    if (this.displayMode === WAVEFORM_DISPLAY_MODES.PERSIST) {
+      this.history.push(cloneDisplayFrame(frame));
+      if (this.history.length > this.maxPersistenceFrames) this.history.shift();
+    } else {
+      this.history = [];
+    }
     this.draw();
   }
 
@@ -144,58 +212,73 @@ export class WaveformRenderer {
       return;
     }
 
-    const allSeries = [
-      { data: this.frame.waveforms.local, lane: 0, color: localColor, width: 1.7 },
-      { data: this.frame.waveforms.remoteReceived, lane: 1, color: remoteColor, width: 1.5 },
-      { data: this.frame.waveforms.remoteAligned, lane: 2, color: alignedColor, width: 1.6 },
-      { data: this.frame.waveforms.rawIdiff, lane: 3, color: rawDiffColor, width: 1.2, dash: [5, 4] },
-      { data: this.frame.waveforms.validatedIdiff, lane: 3, color: validatedDiffColor, width: 1.8 }
+    const seriesForFrame = (frame) => [
+      { data: frame.waveforms.local, lane: 0, color: localColor, width: 1.7 },
+      { data: frame.waveforms.remoteReceived, lane: 1, color: remoteColor, width: 1.5 },
+      { data: frame.waveforms.remoteAligned, lane: 2, color: alignedColor, width: 1.6 },
+      { data: frame.waveforms.rawIdiff, lane: 3, color: rawDiffColor, width: 1.2, dash: [5, 4] },
+      { data: frame.waveforms.validatedIdiff, lane: 3, color: validatedDiffColor, width: 1.8 }
     ];
 
-    const currentMax = Math.max(
-      1.25,
-      ...this.frame.waveforms.local.filter(finite).map(Math.abs),
-      ...this.frame.waveforms.remoteReceived.filter(finite).map(Math.abs),
-      ...this.frame.waveforms.remoteAligned.filter(finite).map(Math.abs)
-    );
-    const diffMax = Math.max(
-      0.5,
-      ...this.frame.waveforms.rawIdiff.filter(finite),
-      ...this.frame.waveforms.validatedIdiff.filter(finite)
-    );
+    const scaleFrames = this.displayMode === WAVEFORM_DISPLAY_MODES.LIVE
+      ? [this.frame]
+      : [...this.history, this.frame];
+    const currentValues = scaleFrames.flatMap((frame) => [
+      ...frame.waveforms.local.filter(finite).map(Math.abs),
+      ...frame.waveforms.remoteReceived.filter(finite).map(Math.abs),
+      ...frame.waveforms.remoteAligned.filter(finite).map(Math.abs)
+    ]);
+    const diffValues = scaleFrames.flatMap((frame) => [
+      ...frame.waveforms.rawIdiff.filter(finite),
+      ...frame.waveforms.validatedIdiff.filter(finite)
+    ]);
+    const currentMax = Math.max(1.25, ...currentValues);
+    const diffMax = Math.max(0.5, ...diffValues);
 
-    for (const series of allSeries) {
-      const laneTop = series.lane * laneHeight;
-      const middle = laneTop + laneHeight / 2;
-      const range = series.lane === 3 ? diffMax : currentMax;
-      const scaleY = (laneHeight * 0.38) / range;
-      context.strokeStyle = series.color;
-      context.lineWidth = series.width;
-      context.setLineDash(series.dash ?? []);
-      context.beginPath();
-      let drawing = false;
-      const data = series.data;
-      for (let index = 0; index < data.length; index += 1) {
-        const value = data[index];
-        if (!finite(value)) {
-          drawing = false;
-          continue;
+    const drawFrameSeries = (frame, alpha = 1, widthMultiplier = 1) => {
+      context.globalAlpha = alpha;
+      for (const series of seriesForFrame(frame)) {
+        const laneTop = series.lane * laneHeight;
+        const middle = laneTop + laneHeight / 2;
+        const range = series.lane === 3 ? diffMax : currentMax;
+        const scaleY = (laneHeight * 0.38) / range;
+        context.strokeStyle = series.color;
+        context.lineWidth = series.width * widthMultiplier;
+        context.setLineDash(series.dash ?? []);
+        context.beginPath();
+        let drawing = false;
+        const data = series.data;
+        for (let index = 0; index < data.length; index += 1) {
+          const value = data[index];
+          if (!finite(value)) {
+            drawing = false;
+            continue;
+          }
+          const x = plotLeft + (index / Math.max(1, data.length - 1)) * plotWidth;
+          const signedValue = series.lane === 3 ? value - diffMax / 2 : value;
+          const y = series.lane === 3
+            ? laneTop + laneHeight * 0.82 - value * ((laneHeight * 0.7) / diffMax)
+            : middle - signedValue * scaleY;
+          if (!drawing) {
+            context.moveTo(x, y);
+            drawing = true;
+          } else {
+            context.lineTo(x, y);
+          }
         }
-        const x = plotLeft + (index / Math.max(1, data.length - 1)) * plotWidth;
-        const signedValue = series.lane === 3 ? value - diffMax / 2 : value;
-        const y = series.lane === 3
-          ? laneTop + laneHeight * 0.82 - value * ((laneHeight * 0.7) / diffMax)
-          : middle - signedValue * scaleY;
-        if (!drawing) {
-          context.moveTo(x, y);
-          drawing = true;
-        } else {
-          context.lineTo(x, y);
-        }
+        context.stroke();
       }
-      context.stroke();
+      context.globalAlpha = 1;
+      context.setLineDash([]);
+    };
+
+    if (this.displayMode !== WAVEFORM_DISPLAY_MODES.LIVE && this.history.length > 1) {
+      const ghostFrames = this.history.slice(0, -1);
+      ghostFrames.forEach((frame, index) => {
+        drawFrameSeries(frame, persistenceOpacity(index, ghostFrames.length), 0.82);
+      });
     }
-    context.setLineDash([]);
+    drawFrameSeries(this.frame, 1, 1);
 
     const cursorX = this.pointerCanvasX === null
       ? plotLeft + plotWidth * this.cursorRatio
