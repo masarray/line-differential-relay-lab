@@ -1,5 +1,12 @@
 import { ALGORITHM_MODES, PROTECTION_STATES, SECURITY_POLICIES } from './constants.js';
 
+function supervisionScore(config, confidence) {
+  if (config.securityPolicy === SECURITY_POLICIES.COMMUNICATION_ONLY_SUPERVISED) {
+    return Number(confidence.channel?.score ?? confidence.minimumScore);
+  }
+  return confidence.minimumScore;
+}
+
 export class ProtectionStateMachine {
   constructor(config) {
     this.reset(config);
@@ -98,7 +105,12 @@ export class ProtectionStateMachine {
       return this.snapshot();
     }
 
-    const score = confidence.minimumScore;
+    // The generic communication-only comparator intentionally makes recovery
+    // decisions from receiver/channel evidence alone. Alignment and waveform
+    // evidence remain visible to the evaluator but do not prolong the channel
+    // block. This models the RTT/2 blind region without claiming equivalence to
+    // any manufacturer implementation.
+    const score = supervisionScore(config, confidence);
     const good = score >= 80;
     const poor = score < 58;
     const critical = score < 38;
