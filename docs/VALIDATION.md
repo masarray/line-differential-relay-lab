@@ -62,20 +62,7 @@ Balanced families include:
 - CT or waveform error;
 - dynamic load step.
 
-Cases can combine:
-
-- static path asymmetry;
-- timing jitter;
-- random and burst packet loss;
-- corruption;
-- duplicate and out-of-order delivery;
-- reorder-buffer and receiver-queue overflow;
-- packet-age violation;
-- route step or ramp;
-- clock offset and drift;
-- CT saturation and waveform distortion.
-
-Each case is replayed identically across the selected generic algorithms.
+Cases can combine static path asymmetry, timing jitter, packet disorder, corruption, queue failure, packet-age violation, route changes, clock error, CT saturation, and waveform distortion. Each case is replayed identically across selected generic algorithms.
 
 ### P5 long-horizon rare-event stress
 
@@ -105,11 +92,7 @@ The non-internal sweep varies:
 - 49–51 Hz;
 - phase and waveform distortion.
 
-The gate fails on:
-
-- false strong internal evidence;
-- unwanted operation;
-- runtime safety-invariant violation.
+The gate fails on false strong internal evidence, unwanted operation, or runtime safety-invariant violation.
 
 ### P7 evidence-qualified internal-fault dependability
 
@@ -121,19 +104,30 @@ Measured remote evidence is unavailable or hard-invalid for too much of the faul
 
 #### Alignment-inhibited
 
-Measured remote samples exist, but trusted timing evidence is unavailable for a sufficient consecutive interval. This is explicitly reported as loss of 87L availability caused by alignment uncertainty.
+Measured remote samples exist, but final trusted trip permission is unavailable for a sufficient consecutive interval. This is explicitly reported as loss of 87L availability caused by alignment uncertainty.
 
 #### Dependability-eligible
 
-Both communication evidence and alignment evidence are qualified. Failure to operate in this category is an eligible missed trip.
+Both communication evidence and final trip-permission evidence are qualified. Failure to operate in this category is an eligible missed trip.
 
-The default P7 evaluator requires:
+The default evaluator requires:
 
-- measured-valid, non-hard-invalid evidence for at least 50% of the fault frames;
+- measured-valid, non-hard-invalid evidence for at least 50% of fault frames;
 - at least three consecutive communication-eligible frames;
-- at least three frames with DEGRADED-qualified timing or trusted strong electrical evidence.
+- at least three consecutive final trip-permission frames.
 
 These thresholds are research-evaluator rules, not field relay settings.
+
+### Timing domains
+
+Internal-fault reports separate:
+
+- **full fault-to-trip time** — includes any SECURE, BLOCKED, or recovery delay after fault application;
+- **permission delay** — time before the final continuous trusted permission streak;
+- **qualified operating latency** — time from that final permission streak to operation;
+- **available-at-fault total time** — full timing for cases already in NORMAL or DEGRADED when fault begins.
+
+The complete delay remains visible. The separation prevents slow revalidation from being mislabeled as slow differential persistence.
 
 ### P7 combined reliability freeze
 
@@ -145,23 +139,25 @@ The publication gate combines:
 - 64 evidence-qualified internal-fault cases;
 - baseline counterexample preservation;
 - Smart unwanted-operation and availability limits;
-- internal-fault operating-time limits;
+- separate availability and qualified-latency limits;
 - zero runtime safety-invariant violations.
 
-The default acceptance rules are:
+Default acceptance rules:
 
 ```text
-Smart failed stress runs                = 0
-Smart mean availability                 ≥ 35%
-communication-supervised counterexample ≥ 1 failed run
-fixed-window counterexample             ≥ 1 failed run
-eligible internal-fault misses          = 0
-eligible internal cases                 ≥ 50% of campaign
-internal-fault operating-time P95       ≤ 160 ms
-safety-invariant violation frames       = 0
+Smart failed stress runs                 = 0
+Smart mean availability                  ≥ 35%
+communication-supervised counterexample  ≥ 1 failed run
+fixed-window counterexample              ≥ 1 failed run
+eligible internal-fault misses           = 0
+eligible internal cases                  ≥ 50% of campaign
+pre-fault-available eligible cases       ≥ 25% of campaign
+qualified operating-latency P95          ≤ 80 ms
+available-at-fault full timing P95       ≤ 160 ms
+safety-invariant violation frames        = 0
 ```
 
-These are portfolio publication gates for this deterministic synthetic model, not certification criteria.
+Full fault-to-trip P95 across every eligible case is reported without being substituted for availability or qualified operating latency. These are portfolio publication gates for this deterministic synthetic model, not certification criteria.
 
 ## Runtime safety invariants
 
@@ -194,7 +190,7 @@ Any violation is included in frame diagnostics, event history, campaign reports,
 - alignment-inhibited cases;
 - dependability-eligible cases;
 - eligible trips and misses;
-- operating-time mean, P50, P95, and maximum.
+- full fault-to-trip and qualified operating-latency distributions.
 
 ### Availability and supervision
 
@@ -202,7 +198,8 @@ Any violation is included in frame diagnostics, event history, campaign reports,
 - permission reopen count;
 - availability percentage;
 - hard-invalid duration;
-- state churn.
+- state churn;
+- permission/revalidation delay.
 
 ### Alignment and tracking
 
@@ -222,6 +219,29 @@ Any violation is included in frame diagnostics, event history, campaign reports,
 - late frames;
 - queue overflow;
 - packet age.
+
+## Final P7 snapshot
+
+```text
+61/61 automated tests passed
+8 × 120 security episodes
+960 episode exposures per profile
+Smart failed runs: 0/8
+Smart unwanted operations: 0
+Smart mean availability: 54.0841%
+Dependability-eligible internal faults: 54
+Eligible trips: 54
+Eligible misses: 0
+Alignment-inhibited internal faults: 10
+Full fault-to-trip P95: 187 ms
+Qualified operating-latency P95: 60 ms
+Available-at-fault full P95: 87 ms
+Safety-invariant violation frames: 0
+CI: passed
+CodeQL: passed
+```
+
+These finite results are deterministic synthetic regression evidence only.
 
 ## Commands
 
