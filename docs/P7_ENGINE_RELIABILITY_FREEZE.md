@@ -6,13 +6,14 @@ The objective is not to certify a relay or claim field reliability. The objectiv
 
 ## Scope
 
-P7 adds five reliability controls:
+P7 adds six reliability controls:
 
 1. alignment-correction freshness supervision;
 2. bounded electrical-hold age;
 3. runtime safety invariants at the final trip-permission boundary;
 4. adversarial false-strong-evidence regression;
-5. evidence-qualified internal-fault dependability classification.
+5. evidence-qualified internal-fault dependability classification;
+6. separate availability delay and qualified operating-latency measurement.
 
 ## Alignment freshness watchdog
 
@@ -101,7 +102,7 @@ P7 sweeps non-internal scenarios across:
 - large positive and negative one-way asymmetry;
 - constant nominal RTT with a rapidly changed forward/return split.
 
-The regression fails if any case creates persistent strong internal evidence, an unwanted operation, or a safety-invariant violation.
+The regression fails if any case creates strong internal evidence, an unwanted operation, or a safety-invariant violation.
 
 ## Evidence-qualified dependability
 
@@ -113,13 +114,30 @@ Remote measured evidence is unavailable or hard-invalid for too much of the faul
 
 ### Alignment-inhibited
 
-Remote measured samples exist, but the receiver cannot establish enough trusted timing evidence. This is reported explicitly as loss of 87L availability due to alignment uncertainty.
+Remote measured samples exist, but the receiver cannot establish a final continuous trip-permission interval of at least three frames. This is reported explicitly as loss of 87L availability due to alignment uncertainty.
 
 ### Dependability-eligible
 
 Both communication evidence and alignment evidence are qualified for at least a bounded consecutive interval. Failure to operate in this category is an eligible missed trip.
 
-This classification prevents fail-safe revalidation from being hidden as a successful trip case, while also preventing an untrusted timing condition from being incorrectly counted as a fair dependability expectation.
+This classification prevents fail-safe revalidation from being hidden as successful protection availability, while also preventing untrusted timing from being incorrectly counted as a fair dependability expectation.
+
+## Timing interpretation
+
+P7 deliberately reports two timing domains:
+
+```text
+Full fault-to-trip time
+= revalidation / availability delay
++ qualified protection operating latency
+```
+
+- **Full fault-to-trip time** starts when the internal fault is applied. It retains any initial SECURE or BLOCKED period.
+- **Permission delay** is the time before the final continuous trusted trip-permission streak begins.
+- **Qualified operating latency** starts at that final trusted permission streak and measures the persistence and decision path that leads to operation.
+- **Available-at-fault total time** is reported only for cases already in NORMAL or DEGRADED permission when the fault begins.
+
+This separation does not remove slow recovery. It prevents a revalidation delay from being mislabeled as a slow differential characteristic while keeping the complete fault-to-trip delay visible.
 
 ## Publication reliability gate
 
@@ -129,7 +147,7 @@ The combined P7 gate executes:
 - generic baseline counterexample checks;
 - Smart unwanted-operation and availability checks;
 - evidence-qualified internal-fault dependability cases;
-- operating-time limits;
+- separate availability and qualified-latency limits;
 - runtime invariant checks;
 - production build and CodeQL.
 
@@ -147,6 +165,46 @@ The default publication gate uses:
 960 episode exposures per profile
 64 evidence-qualified internal-fault cases
 ```
+
+Acceptance rules:
+
+```text
+Smart failed stress runs                 = 0
+Smart mean availability                  ≥ 35%
+baseline supervised counterexample       ≥ 1 failed run
+baseline fixed-window counterexample     ≥ 1 failed run
+eligible internal-fault misses           = 0
+dependability-eligible cases             ≥ 50% of campaign
+pre-fault-available eligible cases       ≥ 25% of campaign
+qualified operating-latency P95          ≤ 80 ms
+available-at-fault full timing P95       ≤ 160 ms
+runtime safety-invariant violations      = 0
+```
+
+Full fault-to-trip P95 across all eligible cases is reported but is not substituted for either availability or qualified operating latency.
+
+## Final validation snapshot
+
+| Result | Value |
+|---|---:|
+| Automated tests | 61/61 passed |
+| Security stress budget | 8 × 120 episodes |
+| Episode exposures per profile | 960 |
+| Smart failed runs | 0/8 |
+| Smart unwanted operations | 0 |
+| Smart mean availability | 54.0841% |
+| Dependability-eligible internal faults | 54 |
+| Eligible internal trips | 54 |
+| Eligible missed trips | 0 |
+| Alignment-inhibited internal faults | 10 |
+| Full fault-to-trip P95, including revalidation | 187 ms |
+| Qualified operating-latency P95 | 60 ms |
+| Available-at-fault full P95 | 87 ms |
+| Safety-invariant violation frames | 0 |
+| Continuous Integration | passed |
+| CodeQL | passed |
+
+The baseline communication-supervised and fixed observation-window comparators continued to produce deterministic counterexamples, so the benchmark did not become trivially easy after P7 hardening.
 
 Reports are written to:
 
@@ -166,7 +224,7 @@ The current packet model is deterministic and packet-driven, but it reconstructs
 - persistent receiver queue;
 - stream restart and sequence reset.
 
-That refactor is technically valuable, but it is intentionally deferred beyond P7 because it changes the communication architecture and could invalidate existing benchmark baselines immediately before the publication freeze.
+That refactor is technically valuable, but it is intentionally deferred beyond P7 because it changes the communication architecture and would require every security and dependability baseline to be re-established.
 
 Therefore the public claim must remain:
 
@@ -178,7 +236,9 @@ and must not be overstated as a complete implementation of a physical or product
 
 - single-phase equivalent electrical model;
 - synthetic CT saturation and DC-offset behavior;
-- no independent COMTRADE reference vectors;
+- moving-window rather than fully persistent receiver stack;
+- no independent Python or MATLAB reference vectors;
+- no COMTRADE replay validation;
 - no hardware-in-the-loop communication emulator;
 - no embedded real-time execution proof;
 - finite deterministic campaign rather than field statistics;
