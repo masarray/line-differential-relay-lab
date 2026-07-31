@@ -4,9 +4,9 @@ import {
   DEFAULT_STRESS_OPTIONS,
   DEFAULT_STRESS_PROFILES,
   STRESS_PROFILE_IDS,
-  formatLongHorizonStressMarkdown,
-  runLongHorizonStressCampaign
+  formatLongHorizonStressMarkdown
 } from '../src/validation/long-horizon-stress.js';
+import { runRecoveryQualifiedStressCampaign } from '../src/validation/recovery-qualified-stress.js';
 
 function readArgument(name, fallback = null) {
   const direct = process.argv.find((argument) => argument.startsWith(`--${name}=`));
@@ -27,33 +27,13 @@ function positiveInteger(value, fallback) {
   return Number.isFinite(parsed) && parsed > 0 ? Math.floor(parsed) : fallback;
 }
 
-function parseProfileIds(value) {
-  const supported = new Set(DEFAULT_STRESS_PROFILES.map((profile) => profile.id));
+function parseProfiles(value) {
+  const supported = new Map(DEFAULT_STRESS_PROFILES.map((profile) => [profile.id, profile]));
   const profileIds = value
     ? value.split(',').map((entry) => entry.trim()).filter((entry) => supported.has(entry))
     : DEFAULT_STRESS_OPTIONS.profiles;
   if (profileIds.length === 0) throw new Error('No supported long-horizon stress profiles selected.');
-  return profileIds;
-}
-
-function resolveExtremeProfiles(profileIds) {
-  return profileIds.map((profileId) => {
-    const base = DEFAULT_STRESS_PROFILES.find((profile) => profile.id === profileId);
-    if (!base) throw new Error(`Unsupported stress profile: ${profileId}`);
-    if (profileId !== STRESS_PROFILE_IDS.COMMUNICATION_SUPERVISED) return base;
-
-    // P5 intentionally uses a demanding but still bounded generic supervision
-    // profile. These are research settings, not a representation of any vendor.
-    return {
-      ...base,
-      settings: {
-        ...base.settings,
-        secureWindowMs: 120,
-        recoveryValidationMs: 160,
-        securePickupMultiplier: 1.25
-      }
-    };
-  });
+  return profileIds.map((profileId) => supported.get(profileId));
 }
 
 const smoke = hasFlag('smoke');
@@ -61,13 +41,13 @@ const seeds = positiveInteger(readArgument('seeds'), smoke ? 2 : DEFAULT_STRESS_
 const episodes = positiveInteger(readArgument('episodes'), smoke ? 30 : DEFAULT_STRESS_OPTIONS.episodes);
 const seed = positiveInteger(readArgument('seed'), DEFAULT_STRESS_OPTIONS.seed);
 const stepMs = positiveInteger(readArgument('step-ms'), DEFAULT_STRESS_OPTIONS.stepMs);
-const profileIds = parseProfileIds(readArgument('profiles'));
-const profiles = resolveExtremeProfiles(profileIds);
+const profiles = parseProfiles(readArgument('profiles'));
+const profileIds = profiles.map((profile) => profile.id);
 const includeReplayDetails = !hasFlag('compact');
 const stopAfterFirstTrip = hasFlag('stop-after-first-trip');
 const outputDirectory = resolve(process.cwd(), readArgument('output', 'artifacts/long-horizon-stress'));
 
-const report = runLongHorizonStressCampaign({
+const report = runRecoveryQualifiedStressCampaign({
   seeds,
   episodes,
   seed,
@@ -96,7 +76,7 @@ if (report.failures.length > 0) {
 }
 
 console.log([
-  'Accelerated long-horizon stress campaign complete:',
+  'Recovery-qualified long-horizon stress campaign complete:',
   `${report.campaign.seeds} seeds`,
   `${report.campaign.episodesPerSeed} episodes/seed`,
   `${report.campaign.replayCount} policy replays`
@@ -108,7 +88,8 @@ for (const profileId of report.campaign.profiles) {
     `failed=${result.failedRuns}/${result.runs}`,
     `ops/1000ep=${result.unwantedOperationsPer1000Episodes}`,
     `first-trip-p50=${result.episodesToFirstTrip.p50 ?? 'n/a'}ep`,
-    `reopens=${result.permissionReopenCount.mean ?? 'n/a'}`
+    `reopens=${result.permissionReopenCount.mean ?? 'n/a'}`,
+    `availability=${result.availabilityPct.mean ?? 'n/a'}%`
   ].join('  '));
 }
 console.log(`Reports: ${outputDirectory}`);
