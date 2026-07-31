@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { cp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 
@@ -11,7 +12,10 @@ await mkdir(destination, { recursive: true });
 await cp(source, destination, { recursive: true });
 
 const pageUrl = 'https://masarray.github.io/line-differential-relay-lab/';
-const previewFileName = `social-preview-v${packageJson.version.replaceAll('.', '-')}.png`;
+const previewSourcePath = resolve(root, 'docs/assets/simulator-preview.png');
+const previewBytes = await readFile(previewSourcePath);
+const previewHash = createHash('sha256').update(previewBytes).digest('hex').slice(0, 12);
+const previewFileName = `social-preview-${previewHash}.png`;
 const previewUrl = `${pageUrl}${previewFileName}`;
 const previewTitle = 'Can 87L Trip Without a Power-System Fault?';
 const previewDescription = 'Explore how communication jitter, one-way delay asymmetry, packet disorder, and unstable recovery can misalign local and remote waveforms and create false differential current.';
@@ -44,17 +48,15 @@ indexHtml = indexHtml
   );
 await writeFile(indexPath, indexHtml);
 
-await cp(
-  resolve(root, 'docs/assets/simulator-preview.png'),
-  resolve(destination, previewFileName)
-);
+await writeFile(resolve(destination, previewFileName), previewBytes);
 
 await writeFile(resolve(destination, '.nojekyll'), '');
 await writeFile(resolve(destination, 'build-info.json'), JSON.stringify({
   name: packageJson.name,
   version: packageJson.version,
   builtAt: new Date().toISOString(),
-  license: packageJson.license
+  license: packageJson.license,
+  socialPreview: previewFileName
 }, null, 2));
 
 console.log(`Built static site: ${destination}`);
