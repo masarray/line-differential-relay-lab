@@ -106,6 +106,39 @@ Packet identity does not become electrical trip evidence. Only samples carried b
 
 Hard-invalid communication includes packet integrity failure, receiver queue overflow, packet age beyond the configured deadline, excessive consecutive frame loss, or critically low measured coverage. Soft packet disorder lowers confidence and moves the supervised algorithms through WATCH, SECURE WINDOW, BLOCKED, and RECOVERY VALIDATION according to persistence.
 
+### P3 blind Monte Carlo validation
+
+P3 does not add a new protection correction. It evaluates P0–P2 using deterministic cases that the algorithm cannot identify in advance.
+
+```text
+master seed + case index
+        ↓
+balanced electrical family
+        +
+packet and timing disturbance
+        ↓
+same case replayed across selected algorithms
+        ↓
+post-frame evaluator
+        ↓
+security / dependability / timing / alignment report
+```
+
+The case generator varies communication and electrical conditions across through-current, external-fault, internal-fault, CT-error, and load-step families. Every generated case is replayed with the same plant seed and disturbance parameters for each selected algorithm.
+
+The evaluator may read diagnostic ground truth only after the simulator has returned the completed frame. It cannot modify estimator state, confidence, permission, Idiff, persistence, or trip output.
+
+Internal-fault results are divided into:
+
+- **dependability-eligible cases**, where enough measured-valid, non-hard-invalid remote evidence exists to make operation a fair expectation;
+- **communication-inhibited cases**, where hard validity or insufficient measured coverage correctly prevents a fair trip expectation.
+
+This avoids counting fail-safe blocking as an unexplained algorithm miss while still exposing the loss of dependability caused by the channel.
+
+Reported metrics include unwanted operations, eligible missed trips, operating time, time to secure or block, recovery time, availability, evaluator-only alignment error, estimated uncertainty, interpolation usage, ambiguity, held measurements, and packet receiver anomalies.
+
+Monte Carlo output is simulation evidence only. It is not relay certification and does not claim equivalence to any manufacturer algorithm.
+
 ### Tracking versus protection buffers
 
 ```text
