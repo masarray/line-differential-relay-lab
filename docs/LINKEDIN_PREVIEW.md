@@ -13,6 +13,6 @@ Recommended screenshot sequence:
 3. Choose **FREEZE** at the most informative state.
 4. Capture the browser viewport at 16:9 or crop the simulator to approximately 1.91:1 for social sharing.
 
-The production build publishes a versioned Open Graph image URL so LinkedIn does not silently reuse an older cached image after a release. The Open Graph image is built from `docs/assets/simulator-preview.png`.
+The production build calculates a SHA-256 digest from `docs/assets/simulator-preview.png` and includes a shortened content hash in the published Open Graph filename. Every actual image change therefore produces a new URL, even when the package version is unchanged, preventing LinkedIn from silently reusing an older cached thumbnail.
 
 Display persistence is a visualization aid only. It never fills missing samples in the protection engine and never changes Idiff, restraint, permission, persistence, or trip decisions.
