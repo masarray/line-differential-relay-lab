@@ -168,5 +168,5 @@ export function installPresentationWaveformControls() {
     button.addEventListener('click', () => setMode(mode));
   }
 
-  setMode(readStoredMode());
+  queueMicrotask(() => setMode(readStoredMode()));
 }
