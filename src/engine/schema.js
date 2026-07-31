@@ -86,6 +86,26 @@ export function sanitizeConfig(candidate = {}) {
   config.minPickupPu = number(config.minPickupPu, defaults.minPickupPu, 0.05, 2);
   config.restraintSlope = number(config.restraintSlope, defaults.restraintSlope, 0.05, 1);
   config.securePickupMultiplier = number(config.securePickupMultiplier, defaults.securePickupMultiplier, 1, 3);
+  config.degradedRecoveryMs = number(config.degradedRecoveryMs, defaults.degradedRecoveryMs, 20, 500);
+  config.degradedMinChannelScore = number(config.degradedMinChannelScore, defaults.degradedMinChannelScore, 42, 90);
+  config.degradedMinAlignmentScore = number(config.degradedMinAlignmentScore, defaults.degradedMinAlignmentScore, 42, 90);
+  config.degradedMinWaveformScore = number(config.degradedMinWaveformScore, defaults.degradedMinWaveformScore, 42, 90);
+  config.degradedMaxUncertaintyMs = number(config.degradedMaxUncertaintyMs, defaults.degradedMaxUncertaintyMs, 0.2, 2.5);
+  config.degradedMaxPredictedFraction = number(
+    config.degradedMaxPredictedFraction,
+    defaults.degradedMaxPredictedFraction,
+    0,
+    0.35
+  );
+  config.degradedPickupMultiplier = number(config.degradedPickupMultiplier, defaults.degradedPickupMultiplier, 1.05, 2.5);
+  config.degradedPersistenceMs = number(config.degradedPersistenceMs, defaults.degradedPersistenceMs, 20, 200);
+  config.degradedMinFaultEvidence = number(config.degradedMinFaultEvidence, defaults.degradedMinFaultEvidence, 0.5, 0.98);
+  config.degradedMinDirectionCorrelation = number(
+    config.degradedMinDirectionCorrelation,
+    defaults.degradedMinDirectionCorrelation,
+    0,
+    0.8
+  );
   config.simulationSpeed = number(config.simulationSpeed, defaults.simulationSpeed, 0.1, 4);
   return config;
 }

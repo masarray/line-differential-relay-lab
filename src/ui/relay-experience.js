@@ -15,6 +15,9 @@ const styles = `
 .relay-device[data-mode-switch-pending="true"][data-relay-state="secure"] .relay-lcd{
   background-color:var(--relay-lcd)!important
 }
+.relay-device[data-relay-mode="smart-tracking"] .relay-lcd [data-degraded-display="true"]{
+  font-weight:800
+}
 .benchmark-access-button{
   width:auto;
   min-width:84px;
@@ -49,6 +52,26 @@ function installSmartModePresentation() {
   let settleTimer = null;
   let clockAtSwitch = '';
 
+  const renderDegradedLabels = () => {
+    const smart = device.dataset.relayMode === 'smart-tracking';
+    const stateOutputs = [
+      document.getElementById('relay-lcd-state'),
+      document.getElementById('protection-state')
+    ].filter(Boolean);
+
+    for (const output of stateOutputs) {
+      if (smart && output.textContent === 'WATCH') {
+        output.textContent = 'DEGRADED 87L';
+        output.dataset.degradedDisplay = 'true';
+      } else if (!smart && output.textContent === 'DEGRADED 87L') {
+        output.textContent = 'WATCH';
+        output.removeAttribute('data-degraded-display');
+      } else if (output.textContent !== 'DEGRADED 87L') {
+        output.removeAttribute('data-degraded-display');
+      }
+    }
+  };
+
   const clearPending = () => {
     device.removeAttribute('data-mode-switch-pending');
     if (settleTimer !== null) {
@@ -67,6 +90,7 @@ function installSmartModePresentation() {
     device.dataset.relayMode = algorithm;
     device.dataset.modeSwitchPending = 'true';
     clockAtSwitch = clock?.textContent ?? '';
+    renderDegradedLabels();
 
     if (settleTimer !== null) window.clearTimeout(settleTimer);
     settleTimer = window.setTimeout(clearPending, MODE_SWITCH_SETTLE_MS);
@@ -86,6 +110,7 @@ function installSmartModePresentation() {
     if (!device.dataset.modeSwitchPending) {
       device.dataset.relayMode = active?.dataset.algorithm ?? '';
     }
+    renderDegradedLabels();
   };
 
   new MutationObserver(syncRelayMode).observe(tabs, {
@@ -93,6 +118,16 @@ function installSmartModePresentation() {
     attributes: true,
     attributeFilter: ['class']
   });
+
+  for (const id of ['relay-lcd-state', 'protection-state']) {
+    const output = document.getElementById(id);
+    if (!output) continue;
+    new MutationObserver(renderDegradedLabels).observe(output, {
+      childList: true,
+      characterData: true,
+      subtree: true
+    });
+  }
 
   if (clock) {
     new MutationObserver(() => {

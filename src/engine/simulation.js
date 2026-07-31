@@ -260,6 +260,10 @@ export class Simulator {
       protectionValidFraction >= Math.max(this.config.minProtectionValidFraction, 0.9) &&
       confidence.waveform.score > 58 &&
       !confidence.hardInvalid;
+    const degradedSupervised =
+      this.config.algorithm === ALGORITHM_MODES.SMART_TRACKING &&
+      protection.degraded === true &&
+      confidence.degradedEligible === true;
     const communicationOnlySupervision =
       this.config.securityPolicy === SECURITY_POLICIES.COMMUNICATION_ONLY_SUPERVISED;
 
@@ -278,6 +282,14 @@ export class Simulator {
       if (strongInternalEvidence) {
         threshold = pickupPu * 1.08;
         requiredPersistenceMs = 30;
+      } else if (this.config.algorithm === ALGORITHM_MODES.SMART_TRACKING) {
+        threshold = pickupPu * this.config.degradedPickupMultiplier;
+        tripAllowed = tripAllowed &&
+          degradedSupervised &&
+          faultEvidence >= this.config.degradedMinFaultEvidence &&
+          directionCorrelation >= this.config.degradedMinDirectionCorrelation &&
+          alignment.uncertaintyMs <= this.config.degradedMaxUncertaintyMs;
+        requiredPersistenceMs = Math.max(requiredPersistenceMs, this.config.degradedPersistenceMs);
       } else {
         threshold *= 1.15;
         requiredPersistenceMs = Math.max(requiredPersistenceMs, 35);
@@ -287,6 +299,12 @@ export class Simulator {
         threshold = pickupPu * 1.12;
         tripAllowed = protection.permission !== 'BLOCKED' && measuredEvidenceValid && !confidence.hardInvalid;
         requiredPersistenceMs = 30;
+      } else if (this.config.algorithm === ALGORITHM_MODES.SMART_TRACKING) {
+        // Smart SECURE is a revalidation state, not a degraded operating state.
+        // Only the trusted P4 strong-internal path above may operate here.
+        threshold = secureThreshold;
+        tripAllowed = false;
+        requiredPersistenceMs = Math.max(requiredPersistenceMs, this.config.degradedPersistenceMs);
       } else {
         threshold = secureThreshold;
         tripAllowed = tripAllowed && faultEvidence > 0.78 &&
@@ -323,9 +341,11 @@ export class Simulator {
       ? 'OPERATE'
       : protection.permission === 'BLOCKED'
         ? '87L BLOCKED'
-        : protection.state === PROTECTION_STATES.SECURE
-          ? 'SECURE / SUPERVISED'
-          : 'STABLE';
+        : protection.degraded
+          ? 'DEGRADED / SUPERVISED'
+          : protection.state === PROTECTION_STATES.SECURE
+            ? 'SECURE / SUPERVISED'
+            : 'STABLE';
 
     const explanation = explainFrame({
       config: this.config,
@@ -409,6 +429,7 @@ export class Simulator {
         operateRatio: round(operateRatio, 4),
         directionalEvidenceValid,
         strongInternalEvidence,
+        degradedSupervised,
         protectionValidFraction: round(protectionValidFraction, 4),
         measuredEvidenceValid
       },
@@ -448,6 +469,7 @@ function explainFrame({ config, alignment, confidence, protection, protectionVal
   if (cause === 'TRACKING_AMBIGUOUS') changed = 'The waveform tracker found more than one plausible alignment position.';
   if (cause === 'TRACKER_AT_BOUNDARY') changed = 'The best waveform match reached the bounded tracking-search limit.';
   if (cause === 'INSUFFICIENT_MEASURED_DATA') changed = 'Too few measured-valid remote samples remain for protection evidence.';
+  if (cause === 'DEGRADED_OPERATION_AVAILABLE') changed = 'Measured receiver, alignment, and waveform evidence qualify bounded degraded 87L operation.';
 
   const packetContext = `SEQ ${receiver.firstSequence}…${receiver.lastSequence}; gaps ${receiver.sequenceGapCount}, reorder ${receiver.reorderedFrames}, duplicate ${receiver.duplicateFrames}.`;
   const why = config.algorithm === ALGORITHM_MODES.SMART_TRACKING
@@ -462,11 +484,15 @@ function explainFrame({ config, alignment, confidence, protection, protectionVal
       ? '87L trip evidence is inhibited until measured-valid sample coverage recovers.'
       : strongInternalEvidence
         ? 'Strong measured directional differential evidence is allowed through the supervised electrical path while timing adaptation remains frozen.'
-        : protection.state === PROTECTION_STATES.SECURE
-          ? `87L uses raised security for ${protection.secureRemainingMs.toFixed(0)} ms while packet and waveform evidence are revalidated.`
-          : decision === 'OPERATE'
-            ? `Measured-only Idiff ${idiffValidatedRms.toFixed(2)} pu exceeds the active ${pickupPu.toFixed(2)} pu characteristic with sufficient persistence.`
-            : '87L remains available under the current protection permission.';
+        : protection.degraded
+          ? '87L remains available with measured-only evidence, higher pickup, stronger directional qualification, and longer persistence.'
+          : protection.state === PROTECTION_STATES.SECURE
+            ? config.algorithm === ALGORITHM_MODES.SMART_TRACKING
+              ? 'Smart 87L remains in revalidation; tripping is inhibited unless the trusted strong-internal electrical path is present.'
+              : `87L uses raised security for ${protection.secureRemainingMs.toFixed(0)} ms while packet and waveform evidence are revalidated.`
+            : decision === 'OPERATE'
+              ? `Measured-only Idiff ${idiffValidatedRms.toFixed(2)} pu exceeds the active ${pickupPu.toFixed(2)} pu characteristic with sufficient persistence.`
+              : '87L remains available under the current protection permission.';
 
   return { changed, why, action };
 }
