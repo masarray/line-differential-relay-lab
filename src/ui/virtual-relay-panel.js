@@ -25,7 +25,6 @@ const markup = `
             <li><i id="relay-error-led" class="relay-led relay-led--red" data-active="false"></i><span>ALARM</span></li>
             <li><i id="relay-secure-led" class="relay-led relay-led--amber" data-active="false"></i><span>SECURE</span></li>
             <li><i id="relay-comm-led" class="relay-led relay-led--green" data-active="true"></i><span>COMM</span></li>
-            <li><i class="relay-led relay-led--green" data-active="true"></i><span>SYNC</span></li>
           </ul>
         </div>
 
@@ -116,11 +115,11 @@ const markup = `
   </aside>`;
 
 const styles = `
-.workspace{grid-template-columns:196px minmax(0,1fr) clamp(360px,30vw,480px)}
+.workspace{grid-template-columns:196px minmax(0,1fr) 205px clamp(320px,22vw,420px)}
 .relay-panel{min-width:0;min-height:0;display:grid;align-content:center;justify-items:center;padding:10px;overflow:auto;border:1px solid var(--border);background:linear-gradient(180deg,rgba(14,29,34,.96),rgba(8,18,22,.98))}
 .relay-device{
   --relay-ink:#dfe6e8;--relay-blue:#2f9bd8;
-  width:100%;max-width:440px;aspect-ratio:1/1.06;min-height:0;
+  width:100%;max-width:420px;aspect-ratio:1/1.06;min-height:0;
   display:grid;grid-template-rows:auto minmax(0,1fr) auto auto;gap:8px;
   padding:11px;color:var(--relay-ink);border:1px solid #191e21;border-radius:12px;
   background:linear-gradient(180deg,#4a5257,#343b40 42%,#272d31);
@@ -198,9 +197,9 @@ const styles = `
 .relay-device[data-relay-state="secure"] .relay-lcd{background-color:#f4eddb}
 .relay-device[data-relay-state="secure"] .relay-lcd-head{background:linear-gradient(180deg,#c69a3c,#9a742a)}
 
-@media(max-width:1320px){.workspace{grid-template-columns:190px minmax(0,1fr) clamp(320px,27vw,400px)}.relay-face{grid-template-columns:82px minmax(0,1fr) 44px}}
-@media(max-width:1180px){.relay-panel{padding:6px}.relay-device{padding:8px;gap:6px}.relay-face{grid-template-columns:76px minmax(0,1fr) 42px;gap:6px}.relay-lcd-body{padding:6px 7px;gap:5px}.relay-deck{gap:6px;padding:7px}.relay-dpad{grid-template-columns:repeat(3,22px);grid-template-rows:repeat(3,18px)}}
-@media(max-width:980px){.workspace{grid-template-columns:220px minmax(0,1fr)}.relay-panel{grid-column:1/-1;min-height:620px}.relay-device{max-width:460px}}
+@media(max-width:1320px){.workspace{grid-template-columns:190px minmax(0,1fr) 190px clamp(300px,24vw,360px)}.relay-face{grid-template-columns:82px minmax(0,1fr) 44px}}
+@media(max-width:1180px){.workspace{grid-template-columns:180px minmax(0,1fr) 180px 300px}.relay-panel{padding:6px}.relay-device{padding:8px;gap:6px}.relay-face{grid-template-columns:76px minmax(0,1fr) 42px;gap:6px}.relay-lcd-body{padding:6px 7px;gap:5px}.relay-deck{gap:6px;padding:7px}.relay-dpad{grid-template-columns:repeat(3,22px);grid-template-rows:repeat(3,18px)}}
+@media(max-width:980px){.workspace{grid-template-columns:220px minmax(0,1fr)}.relay-panel{grid-column:1/-1;min-height:560px}.relay-device{max-width:420px}}
 `;
 
 export function installVirtualRelayPanel() {
