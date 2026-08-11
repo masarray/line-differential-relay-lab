@@ -118,7 +118,7 @@ const styles = `
 .workspace{grid-template-columns:196px minmax(0,1fr) 205px clamp(320px,22vw,420px)}
 .relay-panel{min-width:0;min-height:0;display:grid;align-content:center;justify-items:center;padding:10px;overflow:auto;border:1px solid var(--border);background:linear-gradient(180deg,rgba(14,29,34,.96),rgba(8,18,22,.98))}
 .relay-device{
-  --relay-ink:#dfe6e8;--relay-blue:#2f9bd8;
+  --relay-ink:#dfe6e8;--relay-blue:#2f9bd8;--relay-lcd:#eef1ef;
   width:100%;max-width:420px;aspect-ratio:1/1.06;min-height:0;
   display:grid;grid-template-rows:auto minmax(0,1fr) auto auto;gap:8px;
   padding:11px;color:var(--relay-ink);border:1px solid #191e21;border-radius:12px;
