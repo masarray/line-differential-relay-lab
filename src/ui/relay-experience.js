@@ -169,6 +169,110 @@ const styles = `
   #virtual-relay .relay-dpad{width:142px;height:142px;min-width:142px;min-height:142px;grid-template-columns:repeat(3,34px);grid-template-rows:repeat(3,34px);gap:5px;padding:8px}
   #virtual-relay .relay-dpad button{width:34px;height:34px;min-width:34px;min-height:34px;font-size:10px}
 }
+
+/* Wider front panel: give the F-key rail and status indicators proper hardware spacing. */
+.workspace{
+  grid-template-columns:196px minmax(0,1fr) 205px clamp(450px,31vw,560px)
+}
+#virtual-relay.relay-device{
+  width:100%;
+  max-width:560px;
+  aspect-ratio:.70/1
+}
+#virtual-relay .relay-face{
+  grid-template-columns:112px minmax(0,1fr) 72px;
+  gap:11px
+}
+#virtual-relay .relay-status-column{
+  padding:13px 11px
+}
+#virtual-relay .relay-status-column>small{
+  margin-bottom:13px
+}
+#virtual-relay .relay-indicator-list{
+  gap:13px
+}
+#virtual-relay .relay-indicator-list li{
+  grid-template-columns:14px minmax(0,1fr);
+  gap:10px;
+  font-size:9.3px
+}
+#virtual-relay .relay-led{
+  width:14px;
+  height:14px
+}
+#virtual-relay .relay-fkeys{
+  gap:8px
+}
+#virtual-relay .relay-fkeys .relay-fkey{
+  grid-template-columns:10px minmax(0,1fr);
+  gap:6px
+}
+#virtual-relay .relay-fkey i{
+  width:10px
+}
+#virtual-relay .relay-fkey button{
+  min-height:32px;
+  font-size:10px
+}
+#virtual-relay #relay-reset-latch{
+  font-size:9px
+}
+@media(max-width:1500px){
+  .workspace{grid-template-columns:190px minmax(0,1fr) 195px clamp(410px,30vw,520px)}
+  #virtual-relay.relay-device{max-width:520px;aspect-ratio:.70/1}
+  #virtual-relay .relay-face{grid-template-columns:104px minmax(0,1fr) 68px;gap:10px}
+  #virtual-relay .relay-indicator-list{gap:12px}
+  #virtual-relay .relay-led{width:13px;height:13px}
+  #virtual-relay .relay-indicator-list li{grid-template-columns:13px minmax(0,1fr);gap:9px;font-size:8.8px}
+  #virtual-relay .relay-fkeys .relay-fkey{grid-template-columns:9px minmax(0,1fr);gap:5px}
+  #virtual-relay .relay-fkey i{width:9px}
+}
+@media(max-width:1320px){
+  .workspace{grid-template-columns:188px minmax(0,1fr) 185px clamp(340px,27vw,400px)}
+  #virtual-relay.relay-device{max-width:400px;aspect-ratio:.68/1}
+  #virtual-relay .relay-face{grid-template-columns:84px minmax(0,1fr) 48px;gap:7px}
+  #virtual-relay .relay-status-column{padding:8px 7px}
+  #virtual-relay .relay-status-column>small{margin-bottom:9px}
+  #virtual-relay .relay-indicator-list{gap:8px}
+  #virtual-relay .relay-indicator-list li{grid-template-columns:10px minmax(0,1fr);gap:6px;font-size:8px}
+  #virtual-relay .relay-led{width:10px;height:10px}
+  #virtual-relay .relay-fkeys{gap:7px}
+  #virtual-relay .relay-fkeys .relay-fkey{grid-template-columns:8px minmax(0,1fr);gap:5px}
+  #virtual-relay .relay-fkey i{width:8px}
+  #virtual-relay .relay-fkey button{min-height:25px;font-size:8.5px}
+  #virtual-relay #relay-reset-latch{font-size:7.7px}
+}
+@media(max-width:1180px){
+  .workspace{grid-template-columns:180px minmax(0,1fr) 170px 310px}
+  #virtual-relay.relay-device{max-width:310px;aspect-ratio:.74/1}
+  #virtual-relay .relay-face{grid-template-columns:72px minmax(0,1fr) 40px;gap:5px}
+  #virtual-relay .relay-status-column{padding:7px 5px}
+  #virtual-relay .relay-status-column>small{margin-bottom:7px}
+  #virtual-relay .relay-indicator-list{gap:6px}
+  #virtual-relay .relay-indicator-list li{grid-template-columns:9px minmax(0,1fr);gap:5px;font-size:7px}
+  #virtual-relay .relay-led{width:9px;height:9px}
+  #virtual-relay .relay-fkeys{gap:5px}
+  #virtual-relay .relay-fkeys .relay-fkey{grid-template-columns:7px minmax(0,1fr);gap:4px}
+  #virtual-relay .relay-fkey i{width:7px}
+  #virtual-relay .relay-fkey button{min-height:22px;font-size:8px}
+  #virtual-relay #relay-reset-latch{font-size:7px}
+}
+@media(max-width:980px){
+  .workspace{grid-template-columns:220px minmax(0,1fr)}
+  #virtual-relay.relay-device{max-width:560px;aspect-ratio:.70/1}
+  #virtual-relay .relay-face{grid-template-columns:112px minmax(0,1fr) 72px;gap:11px}
+  #virtual-relay .relay-status-column{padding:13px 11px}
+  #virtual-relay .relay-status-column>small{margin-bottom:13px}
+  #virtual-relay .relay-indicator-list{gap:13px}
+  #virtual-relay .relay-indicator-list li{grid-template-columns:14px minmax(0,1fr);gap:10px;font-size:9.3px}
+  #virtual-relay .relay-led{width:14px;height:14px}
+  #virtual-relay .relay-fkeys{gap:8px}
+  #virtual-relay .relay-fkeys .relay-fkey{grid-template-columns:10px minmax(0,1fr);gap:6px}
+  #virtual-relay .relay-fkey i{width:10px}
+  #virtual-relay .relay-fkey button{min-height:32px;font-size:10px}
+  #virtual-relay #relay-reset-latch{font-size:9px}
+}
 `;
 
 function installSmartModePresentation() {
