@@ -19,30 +19,43 @@ const styles = `
   font-weight:800
 }
 
-/* Physical faceplate polish: extend the enclosure downward and make the navigation ring truly circular. */
+/* Physical faceplate polish: extend the enclosure downward and give trip hardware true physical proportions. */
 #virtual-relay.relay-device{
-  aspect-ratio:.68/1
+  aspect-ratio:.64/1
 }
 #virtual-relay .relay-tripbar{
-  min-height:110px;
+  min-height:128px;
   grid-template-columns:minmax(0,1fr) minmax(0,1.08fr);
-  gap:14px;
-  padding:14px 15px
+  gap:16px;
+  padding:16px 16px
 }
 #virtual-relay .relay-tripbar>div{
-  gap:6px;
+  gap:7px;
   align-content:center
 }
 #virtual-relay .relay-tripbar strong{
   font-size:14px
 }
+#virtual-relay .relay-output-mimic{
+  align-content:center
+}
 #virtual-relay .relay-output-mimic .relay-mimic-chain{
   grid-template-columns:38px minmax(16px,1fr) 38px minmax(16px,1fr) 38px;
-  margin:6px 0
+  align-items:center;
+  margin:8px 0
 }
-#virtual-relay .relay-mimic-chain span,
+#virtual-relay .relay-mimic-chain span{
+  height:30px
+}
 #virtual-relay .relay-mimic-chain b{
-  height:28px
+  width:30px;
+  height:30px;
+  min-width:30px;
+  min-height:30px;
+  aspect-ratio:1/1;
+  justify-self:center;
+  box-sizing:border-box;
+  border-radius:50%!important
 }
 #virtual-relay .relay-output-mimic>strong{
   font-size:10px
@@ -121,8 +134,10 @@ const styles = `
   background:rgba(84,214,195,.18)
 }
 @media(max-width:1320px){
-  #virtual-relay.relay-device{aspect-ratio:.72/1}
-  #virtual-relay .relay-tripbar{min-height:94px;padding:11px;gap:9px}
+  #virtual-relay.relay-device{aspect-ratio:.68/1}
+  #virtual-relay .relay-tripbar{min-height:108px;padding:13px;gap:10px}
+  #virtual-relay .relay-mimic-chain span{height:27px}
+  #virtual-relay .relay-mimic-chain b{width:27px;height:27px;min-width:27px;min-height:27px}
   #virtual-relay .relay-deck{grid-template-columns:40px minmax(122px,1fr) 40px 44px;min-height:136px;padding:12px;gap:9px}
   #virtual-relay .relay-deck-left button,
   #virtual-relay .relay-deck-right button{width:34px;height:34px;min-width:34px;min-height:34px}
@@ -131,9 +146,11 @@ const styles = `
 }
 @media(max-width:1180px){
   .benchmark-access-button{min-width:0;padding-inline:7px;font-size:7px}
-  #virtual-relay.relay-device{aspect-ratio:.78/1}
-  #virtual-relay .relay-tripbar{min-height:82px;padding:9px;gap:6px}
+  #virtual-relay.relay-device{aspect-ratio:.74/1}
+  #virtual-relay .relay-tripbar{min-height:94px;padding:10px;gap:7px}
   #virtual-relay .relay-tripbar strong{font-size:11px}
+  #virtual-relay .relay-mimic-chain span{height:24px}
+  #virtual-relay .relay-mimic-chain b{width:24px;height:24px;min-width:24px;min-height:24px}
   #virtual-relay .relay-deck{grid-template-columns:34px minmax(106px,1fr) 34px 38px;min-height:116px;padding:9px;gap:6px}
   #virtual-relay .relay-deck-left button,
   #virtual-relay .relay-deck-right button{width:30px;height:30px;min-width:30px;min-height:30px}
@@ -141,9 +158,11 @@ const styles = `
   #virtual-relay .relay-dpad button{width:25px;height:25px;min-width:25px;min-height:25px;font-size:8px}
 }
 @media(max-width:980px){
-  #virtual-relay.relay-device{aspect-ratio:.68/1}
-  #virtual-relay .relay-tripbar{min-height:110px;padding:14px 15px;gap:14px}
+  #virtual-relay.relay-device{aspect-ratio:.64/1}
+  #virtual-relay .relay-tripbar{min-height:128px;padding:16px;gap:16px}
   #virtual-relay .relay-tripbar strong{font-size:14px}
+  #virtual-relay .relay-mimic-chain span{height:30px}
+  #virtual-relay .relay-mimic-chain b{width:30px;height:30px;min-width:30px;min-height:30px}
   #virtual-relay .relay-deck{grid-template-columns:48px minmax(142px,1fr) 48px 54px;min-height:158px;padding:16px;gap:14px}
   #virtual-relay .relay-deck-left button,
   #virtual-relay .relay-deck-right button{width:42px;height:42px;min-width:42px;min-height:42px}
