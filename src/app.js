@@ -368,6 +368,7 @@ worker.addEventListener('error', (event) => {
 
 if ('serviceWorker' in navigator && location.protocol !== 'file:') {
   window.addEventListener('load', () => {
+    navigator.serviceWorker.register(new URL('./service-worker.js', import.meta.url)).catch(() => {});
   });
 }
 
