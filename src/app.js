@@ -124,6 +124,9 @@ function updateVirtualRelay(frame) {
   element('relay-lcd-clock').textContent = `${frame.timeSeconds.toFixed(3)} s`;
   element('relay-lcd-idiff').textContent = `${frame.differential.validatedRmsPu.toFixed(3)} pu`;
   element('relay-lcd-ibias').textContent = `${frame.differential.restraintRmsPu.toFixed(3)} pu`;
+  element('relay-lcd-iraw').textContent = `${frame.differential.rawRmsPu.toFixed(3)} pu`;
+  element('relay-lcd-ipickup').textContent = `${frame.differential.activeThresholdPu.toFixed(3)} pu`;
+  element('relay-lcd-channel').textContent = `${channelScore.toFixed(0)} %`;
   element('relay-lcd-state').textContent = frame.protection.state;
   element('relay-lcd-permission').textContent = frame.protection.permission;
 
@@ -365,7 +368,6 @@ worker.addEventListener('error', (event) => {
 
 if ('serviceWorker' in navigator && location.protocol !== 'file:') {
   window.addEventListener('load', () => {
-    navigator.serviceWorker.register(new URL('./service-worker.js', import.meta.url)).catch(() => {});
   });
 }
 
