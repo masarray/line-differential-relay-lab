@@ -1,4 +1,5 @@
 import { installReadableAnalysisPanel } from './analysis-panel.js';
+import { installComparisonExperience } from './comparison-tour.js';
 import { installRelayExperience } from './relay-experience.js';
 import { installVirtualRelayPanel } from './virtual-relay-panel.js';
 
@@ -11,6 +12,9 @@ if (typeof document !== 'undefined') {
   installVirtualRelayPanel();
   installReadableAnalysisPanel();
   installRelayExperience();
+  // Defer the comparison/tour bootstrap until app.js has attached its control
+  // listeners, so tour-driven clicks use the same public UI path as the user.
+  window.setTimeout(installComparisonExperience, 0);
   const alignmentOutput = document.getElementById('alignment-error');
   const alignmentLabel = alignmentOutput?.previousElementSibling;
   if (alignmentLabel) alignmentLabel.textContent = 'ALIGN UNC';
