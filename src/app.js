@@ -5,10 +5,25 @@ import { createRelayLatchState, resetRelayLatch, updateRelayLatch } from './ui/r
 
 const worker = new Worker(new URL('./worker/simulation-worker.js', import.meta.url), { type: 'module' });
 const renderer = new WaveformRenderer(document.querySelector('#waveform-canvas'));
+const PRESENTATION_INTERVAL_MS = 1000 / 12;
+const CONTROL_POST_INTERVAL_MS = 28;
+const NARRATIVE_INTERVAL_MS = 250;
+
 let config = createDefaultConfig();
 let running = true;
 let latestFrame = null;
 let relayLatch = createRelayLatchState();
+let pendingPresentationFrame = null;
+let presentationTimer = null;
+let lastPresentationAt = 0;
+let pendingWorkerPatch = {};
+let workerPatchTimer = null;
+let lastReasonSignature = '';
+let lastEventSignature = '';
+let lastExplanationSignature = '';
+let lastProtectionSignature = '';
+let lastNarrativeAt = 0;
+const visualMetrics = new Map();
 
 const units = {
   baseDelayMs: ['ms', 2],
@@ -38,43 +53,110 @@ function element(id) {
   return document.getElementById(id);
 }
 
+function setText(target, value) {
+  const node = typeof target === 'string' ? element(target) : target;
+  if (!node) return;
+  const text = String(value);
+  if (node.textContent !== text) node.textContent = text;
+}
+
+function setDataset(node, key, value) {
+  if (!node) return;
+  const text = String(value);
+  if (node.dataset[key] !== text) node.dataset[key] = text;
+}
+
+function setStyle(node, property, value) {
+  if (!node) return;
+  if (node.style[property] !== value) node.style[property] = value;
+}
+
+function smoothMetric(key, target, alpha = 0.55) {
+  if (!Number.isFinite(target)) return target;
+  const previous = visualMetrics.get(key);
+  const next = Number.isFinite(previous) ? previous + (target - previous) * alpha : target;
+  visualMetrics.set(key, next);
+  return next;
+}
+
+function resetPresentationSmoothing() {
+  visualMetrics.clear();
+  renderer.resetSmoothing?.();
+}
+
 function formatConfigValue(key, value) {
   const [unit, digits] = units[key] ?? ['', 2];
   return `${Number(value).toFixed(digits)} ${unit}`.trim();
 }
 
-function postConfig(patch, replace = false) {
-  config = sanitizeConfig({ ...config, ...patch });
-  worker.postMessage(replace
-    ? { type: 'REPLACE_CONFIG', config }
-    : { type: 'CONFIG', patch });
-  syncControls();
-}
-
-function syncControls() {
-  document.querySelectorAll('[data-config]').forEach((control) => {
-    const key = control.dataset.config;
-    if (!(key in config)) return;
+function syncControlKey(key) {
+  const control = document.querySelector(`[data-config="${key}"]`);
+  if (control && key in config) {
     if (control.type === 'checkbox') control.checked = Boolean(config[key]);
     else control.value = String(config[key]);
-  });
+  }
 
-  document.querySelectorAll('[data-output]').forEach((output) => {
-    const key = output.dataset.output;
+  const output = document.querySelector(`[data-output="${key}"]`);
+  if (output && key in config) {
     output.value = formatConfigValue(key, config[key]);
-    output.textContent = output.value;
-  });
+    setText(output, output.value);
+  }
 
-  document.querySelectorAll('[data-algorithm]').forEach((button) => {
-    const active = button.dataset.algorithm === config.algorithm;
-    button.classList.toggle('is-active', active);
-    button.setAttribute('aria-pressed', String(active));
-  });
+  if (key === 'algorithm') {
+    document.querySelectorAll('[data-algorithm]').forEach((button) => {
+      const active = button.dataset.algorithm === config.algorithm;
+      button.classList.toggle('is-active', active);
+      button.setAttribute('aria-pressed', String(active));
+    });
+  }
+  if (key === 'scenario') element('scenario-select').value = config.scenario;
+  if (key === 'seed') setText('seed-value', config.seed);
+  if (key === 'frequencyHz') setText('frequency-label', `${config.frequencyHz} Hz`);
+  if (key === 'sampleRateHz') setText('sample-label', `${config.sampleRateHz} Sa/s`);
+}
 
-  element('scenario-select').value = config.scenario;
-  element('seed-value').textContent = String(config.seed);
-  element('frequency-label').textContent = `${config.frequencyHz} Hz`;
-  element('sample-label').textContent = `${config.sampleRateHz} Sa/s`;
+function syncControls(keys = null) {
+  if (Array.isArray(keys)) {
+    [...new Set(keys)].forEach(syncControlKey);
+    return;
+  }
+
+  document.querySelectorAll('[data-config]').forEach((control) => syncControlKey(control.dataset.config));
+  document.querySelectorAll('[data-output]').forEach((output) => syncControlKey(output.dataset.output));
+  syncControlKey('algorithm');
+  syncControlKey('scenario');
+  syncControlKey('seed');
+  syncControlKey('frequencyHz');
+  syncControlKey('sampleRateHz');
+}
+
+function flushWorkerPatch() {
+  if (workerPatchTimer !== null) {
+    window.clearTimeout(workerPatchTimer);
+    workerPatchTimer = null;
+  }
+  const patch = pendingWorkerPatch;
+  pendingWorkerPatch = {};
+  if (Object.keys(patch).length > 0) worker.postMessage({ type: 'CONFIG', patch });
+}
+
+function queueWorkerPatch(patch) {
+  Object.assign(pendingWorkerPatch, patch);
+  if (workerPatchTimer !== null) return;
+  workerPatchTimer = window.setTimeout(flushWorkerPatch, CONTROL_POST_INTERVAL_MS);
+}
+
+function postConfig(patch, replace = false) {
+  config = sanitizeConfig({ ...config, ...patch });
+  if (replace) {
+    flushWorkerPatch();
+    worker.postMessage({ type: 'REPLACE_CONFIG', config });
+    resetPresentationSmoothing();
+    syncControls();
+  } else {
+    queueWorkerPatch(patch);
+    syncControls(Object.keys(patch));
+  }
 }
 
 function scoreColor(score) {
@@ -85,23 +167,24 @@ function scoreColor(score) {
 }
 
 function updateConfidence(domain, confidence) {
-  element(`${domain}-confidence-value`).textContent = `${confidence.score.toFixed(0)}%`;
-  element(`${domain}-confidence-status`).textContent = confidence.status;
+  const score = smoothMetric(`confidence-${domain}`, confidence.score, 0.48);
+  setText(`${domain}-confidence-value`, `${score.toFixed(0)}%`);
+  setText(`${domain}-confidence-status`, confidence.status);
   const bar = element(`${domain}-confidence-bar`);
-  bar.style.width = `${Math.max(1, confidence.score)}%`;
-  bar.style.backgroundColor = scoreColor(confidence.score);
+  setStyle(bar, 'width', `${Math.max(1, score)}%`);
+  setStyle(bar, 'backgroundColor', scoreColor(score));
 }
 
 function setRelayLed(id, active, condition = 'normal') {
   const led = element(id);
-  led.dataset.active = String(Boolean(active));
-  led.dataset.condition = condition;
+  if (!led) return;
+  setDataset(led, 'active', Boolean(active));
+  setDataset(led, 'condition', condition);
 }
 
 function updateVirtualRelay(frame) {
   if (!frame) return;
 
-  relayLatch = updateRelayLatch(relayLatch, frame);
   const blocked = frame.protection.permission === 'BLOCKED';
   const secure = frame.protection.state === 'SECURE WINDOW' || frame.protection.state === 'WATCH';
   const pickup = frame.differential.validatedRmsPu >= frame.differential.activeThresholdPu * 0.9;
@@ -119,73 +202,77 @@ function updateVirtualRelay(frame) {
   setRelayLed('relay-trip-led', relayLatch.latched, 'danger');
 
   const device = element('virtual-relay');
-  device.dataset.relayState = relayLatch.latched ? 'trip' : blocked ? 'blocked' : secure ? 'secure' : 'ready';
+  setDataset(device, 'relayState', relayLatch.latched ? 'trip' : blocked ? 'blocked' : secure ? 'secure' : 'ready');
 
-  element('relay-lcd-clock').textContent = `${frame.timeSeconds.toFixed(3)} s`;
-  element('relay-lcd-idiff').textContent = `${frame.differential.validatedRmsPu.toFixed(3)} pu`;
-  element('relay-lcd-ibias').textContent = `${frame.differential.restraintRmsPu.toFixed(3)} pu`;
-  element('relay-lcd-iraw').textContent = `${frame.differential.rawRmsPu.toFixed(3)} pu`;
-  element('relay-lcd-ipickup').textContent = `${frame.differential.activeThresholdPu.toFixed(3)} pu`;
-  element('relay-lcd-channel').textContent = `${channelScore.toFixed(0)} %`;
-  element('relay-lcd-state').textContent = frame.protection.state;
-  element('relay-lcd-permission').textContent = frame.protection.permission;
+  const relayIdiff = smoothMetric('relay-idiff', frame.differential.validatedRmsPu, 0.58);
+  const relayIbias = smoothMetric('relay-ibias', frame.differential.restraintRmsPu, 0.58);
+  const relayIraw = smoothMetric('relay-iraw', frame.differential.rawRmsPu, 0.58);
+  const relayPickup = smoothMetric('relay-pickup', frame.differential.activeThresholdPu, 0.58);
+  const relayChannel = smoothMetric('relay-channel', channelScore, 0.5);
+
+  setText('relay-lcd-clock', `${frame.timeSeconds.toFixed(3)} s`);
+  setText('relay-lcd-idiff', `${relayIdiff.toFixed(3)} pu`);
+  setText('relay-lcd-ibias', `${relayIbias.toFixed(3)} pu`);
+  setText('relay-lcd-iraw', `${relayIraw.toFixed(3)} pu`);
+  setText('relay-lcd-ipickup', `${relayPickup.toFixed(3)} pu`);
+  setText('relay-lcd-channel', `${relayChannel.toFixed(0)} %`);
+  setText('relay-lcd-state', frame.protection.state);
+  setText('relay-lcd-permission', frame.protection.permission);
 
   if (relayLatch.latched) {
-    element('relay-lcd-title').textContent = 'TRIP LATCHED';
-    element('relay-lcd-message').textContent = `87L OPERATE @ ${relayLatch.tripTimeSeconds.toFixed(3)} s`;
-    element('relay-latch-status').textContent = '87L TRIP';
-    element('relay-latch-detail').textContent = `${relayLatch.idiffPu.toFixed(3)} pu · ${relayLatch.scenarioLabel}`;
+    setText('relay-lcd-title', 'TRIP LATCHED');
+    setText('relay-lcd-message', `87L OPERATE @ ${relayLatch.tripTimeSeconds.toFixed(3)} s`);
+    setText('relay-latch-status', '87L TRIP');
+    setText('relay-latch-detail', `${relayLatch.idiffPu.toFixed(3)} pu · ${relayLatch.scenarioLabel}`);
   } else if (blocked) {
-    element('relay-lcd-title').textContent = '87L BLOCKED';
-    element('relay-lcd-message').textContent = 'REMOTE DATA NOT RELIABLE';
-    element('relay-latch-status').textContent = 'CLEAR';
-    element('relay-latch-detail').textContent = 'Trip permission blocked';
+    setText('relay-lcd-title', '87L BLOCKED');
+    setText('relay-lcd-message', 'REMOTE DATA NOT RELIABLE');
+    setText('relay-latch-status', 'CLEAR');
+    setText('relay-latch-detail', 'Trip permission blocked');
   } else if (secure) {
-    element('relay-lcd-title').textContent = 'SECURE MODE';
-    element('relay-lcd-message').textContent = `${frame.protection.secureRemainingMs.toFixed(0)} ms VALIDATION WINDOW`;
-    element('relay-latch-status').textContent = 'CLEAR';
-    element('relay-latch-detail').textContent = 'Supervised operation active';
+    setText('relay-lcd-title', 'SUPERVISED 87L');
+    setText('relay-lcd-message', `${frame.protection.secureRemainingMs.toFixed(0)} ms REVALIDATION`);
+    setText('relay-latch-status', 'CLEAR');
+    setText('relay-latch-detail', 'Supervised operation active');
   } else {
-    element('relay-lcd-title').textContent = '87L IN SERVICE';
-    element('relay-lcd-message').textContent = 'PROTECTION AVAILABLE';
-    element('relay-latch-status').textContent = 'CLEAR';
-    element('relay-latch-detail').textContent = 'No latched operation';
+    setText('relay-lcd-title', '87L IN SERVICE');
+    setText('relay-lcd-message', 'PROTECTION AVAILABLE');
+    setText('relay-latch-status', 'CLEAR');
+    setText('relay-latch-detail', 'No latched operation');
   }
 
-  element('relay-output-state').textContent = relayLatch.latched ? 'TRIP OUTPUT LATCHED' : blocked ? 'TRIP OUTPUT BLOCKED' : 'TRIP CONTACT RESET';
-  element('relay-reset-latch').disabled = !relayLatch.latched;
+  setText('relay-output-state', relayLatch.latched ? 'TRIP OUTPUT LATCHED' : blocked ? 'TRIP OUTPUT BLOCKED' : 'TRIP CONTACT RESET');
+  const reset = element('relay-reset-latch');
+  if (reset) reset.disabled = !relayLatch.latched;
 }
 
-function updateFrame(frame) {
-  latestFrame = frame;
-  renderer.setFrame(frame);
-
-  element('scenario-label').textContent = frame.scenarioLabel;
-  element('rtt-value').textContent = `${frame.channel.rttMs.toFixed(2)} ms`;
-  element('alignment-error').textContent = `${frame.alignment.residualEstimateMs >= 0 ? '+' : ''}${frame.alignment.residualEstimateMs.toFixed(2)} ms`;
-  element('idiff-value').textContent = `${frame.differential.validatedRmsPu.toFixed(3)} pu`;
-  element('irest-value').textContent = `${frame.differential.restraintRmsPu.toFixed(3)} pu`;
-  element('simulation-time').textContent = `t = ${frame.timeSeconds.toFixed(3)} s`;
-
-  element('protection-state').textContent = frame.protection.state;
-  element('permission-badge').textContent = frame.protection.permission;
-  element('secure-remaining').textContent = `${frame.protection.secureRemainingMs.toFixed(0)} ms`;
-
-  updateConfidence('channel', frame.confidence.channel);
-  updateConfidence('alignment', frame.confidence.alignment);
-  updateConfidence('waveform', frame.confidence.waveform);
-
+function updateReasons(frame) {
+  const signature = frame.confidence.reasons.join('|');
+  if (signature === lastReasonSignature) return;
+  lastReasonSignature = signature;
   element('reason-codes').replaceChildren(...frame.confidence.reasons.map((reason) => {
     const span = document.createElement('span');
     span.textContent = reason;
     return span;
   }));
+}
 
-  element('explain-changed').textContent = frame.explanation.changed;
-  element('explain-why').textContent = frame.explanation.why;
-  element('explain-action').textContent = frame.explanation.action;
+function updateExplanation(frame) {
+  const signature = [frame.explanation.changed, frame.explanation.why, frame.explanation.action].join('\u241f');
+  if (signature === lastExplanationSignature) return;
+  lastExplanationSignature = signature;
+  setText('explain-changed', frame.explanation.changed);
+  setText('explain-why', frame.explanation.why);
+  setText('explain-action', frame.explanation.action);
+}
 
-  const eventItems = frame.events.slice(0, 4).map((event) => {
+function updateEvents(frame) {
+  const events = frame.events.slice(0, 4);
+  const signature = events.map((event) => `${event.timeSeconds.toFixed(3)}|${event.message}`).join('||');
+  if (signature === lastEventSignature) return;
+  lastEventSignature = signature;
+
+  const eventItems = events.map((event) => {
     const item = document.createElement('li');
     const time = document.createElement('time');
     const text = document.createElement('span');
@@ -200,17 +287,69 @@ function updateFrame(frame) {
     eventItems.push(item);
   }
   element('event-list').replaceChildren(...eventItems);
+}
 
-  element('forward-value').textContent = `FWD ${frame.channel.forwardMs.toFixed(2)} ms`;
-  element('return-value').textContent = `RET ${frame.channel.returnMs.toFixed(2)} ms`;
-  const total = Math.max(0.01, frame.channel.forwardMs + frame.channel.returnMs);
-  const forwardRatio = frame.channel.forwardMs / total;
-  element('forward-segment').style.width = `${Math.max(5, forwardRatio * 48)}%`;
-  element('remote-node').style.left = `${Math.max(8, Math.min(92, forwardRatio * 100))}%`;
-  element('return-segment').style.width = `${Math.max(5, (1 - forwardRatio) * 48)}%`;
+function updateCanvasSummary(frame) {
+  setText('canvas-summary', [
+    `${frame.modeLabel}, ${frame.scenarioLabel}.`,
+    `Validated differential current ${frame.differential.validatedRmsPu.toFixed(3)} per unit.`,
+    `Restraint current ${frame.differential.restraintRmsPu.toFixed(3)} per unit.`,
+    `Channel confidence ${frame.confidence.channel.score.toFixed(0)} percent.`,
+    `Alignment confidence ${frame.confidence.alignment.score.toFixed(0)} percent.`,
+    `Waveform confidence ${frame.confidence.waveform.score.toFixed(0)} percent.`,
+    `Protection state ${frame.protection.state}; decision ${frame.protection.decision}.`
+  ].join(' '));
+}
 
-  element('decision-value').textContent = frame.protection.decision;
-  element('margin-value').textContent = `${frame.differential.marginPu >= 0 ? '+' : ''}${frame.differential.marginPu.toFixed(3)} pu`;
+function renderPresentation(frame) {
+  if (!frame) return;
+  const now = performance.now();
+  renderer.setFrame(frame);
+
+  setText('scenario-label', frame.scenarioLabel);
+  const rtt = smoothMetric('rtt', frame.channel.rttMs, 0.48);
+  const alignment = smoothMetric('alignment', frame.alignment.residualEstimateMs, 0.48);
+  const idiff = smoothMetric('idiff', frame.differential.validatedRmsPu, 0.58);
+  const irest = smoothMetric('irest', frame.differential.restraintRmsPu, 0.58);
+  const margin = smoothMetric('margin', frame.differential.marginPu, 0.58);
+
+  setText('rtt-value', `${rtt.toFixed(2)} ms`);
+  setText('alignment-error', `${alignment >= 0 ? '+' : ''}${alignment.toFixed(2)} ms`);
+  setText('idiff-value', `${idiff.toFixed(3)} pu`);
+  setText('irest-value', `${irest.toFixed(3)} pu`);
+  setText('simulation-time', `t = ${frame.timeSeconds.toFixed(3)} s`);
+
+  setText('protection-state', frame.protection.state);
+  setText('permission-badge', frame.protection.permission);
+  setText('secure-remaining', `${frame.protection.secureRemainingMs.toFixed(0)} ms`);
+
+  updateConfidence('channel', frame.confidence.channel);
+  updateConfidence('alignment', frame.confidence.alignment);
+  updateConfidence('waveform', frame.confidence.waveform);
+
+  const protectionSignature = `${frame.protection.state}|${frame.protection.permission}|${frame.protection.operate}`;
+  const protectionChanged = protectionSignature !== lastProtectionSignature;
+  if (protectionChanged) lastProtectionSignature = protectionSignature;
+  if (protectionChanged || now - lastNarrativeAt >= NARRATIVE_INTERVAL_MS) {
+    lastNarrativeAt = now;
+    updateReasons(frame);
+    updateExplanation(frame);
+    updateCanvasSummary(frame);
+  }
+  updateEvents(frame);
+
+  const forward = smoothMetric('forward', frame.channel.forwardMs, 0.5);
+  const backward = smoothMetric('return', frame.channel.returnMs, 0.5);
+  setText('forward-value', `FWD ${forward.toFixed(2)} ms`);
+  setText('return-value', `RET ${backward.toFixed(2)} ms`);
+  const total = Math.max(0.01, forward + backward);
+  const forwardRatio = forward / total;
+  setStyle(element('forward-segment'), 'width', `${Math.max(5, forwardRatio * 48)}%`);
+  setStyle(element('remote-node'), 'left', `${Math.max(8, Math.min(92, forwardRatio * 100))}%`);
+  setStyle(element('return-segment'), 'width', `${Math.max(5, (1 - forwardRatio) * 48)}%`);
+
+  setText('decision-value', frame.protection.decision);
+  setText('margin-value', `${margin >= 0 ? '+' : ''}${margin.toFixed(3)} pu`);
   const decisionBlock = document.querySelector('.decision-block');
   const decisionKind = frame.protection.operate
     ? 'operate'
@@ -219,37 +358,57 @@ function updateFrame(frame) {
       : frame.protection.state === 'SECURE WINDOW'
         ? 'secure'
         : 'stable';
-  decisionBlock.dataset.decision = decisionKind;
+  setDataset(decisionBlock, 'decision', decisionKind);
 
   const permissionBadge = element('permission-badge');
-  permissionBadge.style.color = decisionKind === 'blocked'
+  setStyle(permissionBadge, 'color', decisionKind === 'blocked'
     ? 'var(--blocked)'
     : decisionKind === 'secure'
       ? 'var(--watch)'
       : frame.protection.operate
         ? 'var(--danger)'
-        : 'var(--good)';
+        : 'var(--good)');
 
   updateVirtualRelay(frame);
+}
 
-  element('canvas-summary').textContent = [
-    `${frame.modeLabel}, ${frame.scenarioLabel}.`,
-    `Validated differential current ${frame.differential.validatedRmsPu.toFixed(3)} per unit.`,
-    `Restraint current ${frame.differential.restraintRmsPu.toFixed(3)} per unit.`,
-    `Channel confidence ${frame.confidence.channel.score.toFixed(0)} percent.`,
-    `Alignment confidence ${frame.confidence.alignment.score.toFixed(0)} percent.`,
-    `Waveform confidence ${frame.confidence.waveform.score.toFixed(0)} percent.`,
-    `Protection state ${frame.protection.state}; decision ${frame.protection.decision}.`
-  ].join(' ');
+function flushPresentation() {
+  presentationTimer = null;
+  const frame = pendingPresentationFrame;
+  pendingPresentationFrame = null;
+  if (!frame) return;
+  lastPresentationAt = performance.now();
+  renderPresentation(frame);
+}
+
+function schedulePresentation(frame) {
+  pendingPresentationFrame = frame;
+  if (presentationTimer !== null) return;
+  const elapsed = performance.now() - lastPresentationAt;
+  const delay = Math.max(0, PRESENTATION_INTERVAL_MS - elapsed);
+  presentationTimer = window.setTimeout(flushPresentation, delay);
 }
 
 function setRunning(nextRunning) {
   running = nextRunning;
   worker.postMessage({ type: running ? 'RUN' : 'PAUSE' });
-  element('play-button').textContent = running ? 'Ⅱ PAUSE' : '▶ RUN';
-  element('run-state').textContent = running ? 'RUNNING' : 'PAUSED';
+  setText('play-button', running ? 'Ⅱ PAUSE' : '▶ RUN');
+  setText('run-state', running ? 'RUNNING' : 'PAUSED');
   document.querySelector('.live-indicator').classList.toggle('is-paused', !running);
   if (latestFrame) updateVirtualRelay(latestFrame);
+}
+
+function installPresentationMotion() {
+  ['channel-confidence-bar', 'alignment-confidence-bar', 'waveform-confidence-bar'].forEach((id) => {
+    const bar = element(id);
+    if (bar) bar.style.transition = 'width 150ms cubic-bezier(.22,.61,.36,1), background-color 180ms ease';
+  });
+  const forwardSegment = element('forward-segment');
+  const returnSegment = element('return-segment');
+  const remoteNode = element('remote-node');
+  if (forwardSegment) forwardSegment.style.transition = 'width 150ms cubic-bezier(.22,.61,.36,1)';
+  if (returnSegment) returnSegment.style.transition = 'width 150ms cubic-bezier(.22,.61,.36,1)';
+  if (remoteNode) remoteNode.style.transition = 'left 150ms cubic-bezier(.22,.61,.36,1)';
 }
 
 document.querySelectorAll('[data-config]').forEach((control) => {
@@ -258,7 +417,7 @@ document.querySelectorAll('[data-config]').forEach((control) => {
     const key = control.dataset.config;
     const value = control.type === 'checkbox' ? control.checked : Number(control.value);
     postConfig({ [key]: value });
-  });
+  }, { passive: eventName === 'input' });
 });
 
 document.querySelectorAll('[data-algorithm]').forEach((button) => {
@@ -286,7 +445,7 @@ document.querySelectorAll('[data-control-tab]').forEach((button) => {
 element('preset-select').addEventListener('change', (event) => {
   const preset = PRESETS[event.target.value];
   if (!preset) return;
-  element('preset-purpose').textContent = preset.purpose;
+  setText('preset-purpose', preset.purpose);
   postConfig(preset.patch, true);
 });
 
@@ -301,21 +460,21 @@ element('step-button').addEventListener('click', () => {
   worker.postMessage({ type: 'STEP', deltaMs: 40 });
 });
 element('reset-button').addEventListener('click', () => {
+  resetPresentationSmoothing();
   worker.postMessage({ type: 'RESET', config });
 });
 
 element('relay-reset-latch').addEventListener('click', () => {
   const operateActive = Boolean(latestFrame?.protection?.operate);
   relayLatch = resetRelayLatch(relayLatch, operateActive);
-  if (operateActive) {
-    element('relay-latch-detail').textContent = 'RESET INHIBITED · operate condition active';
-  }
+  if (operateActive) setText('relay-latch-detail', 'RESET INHIBITED · operate condition active');
   updateVirtualRelay(latestFrame);
 });
 
 element('theme-button').addEventListener('click', () => {
   document.documentElement.classList.toggle('high-contrast');
-  renderer.draw();
+  renderer.invalidatePalette?.();
+  renderer.requestDraw?.();
 });
 
 element('export-button').addEventListener('click', () => {
@@ -335,6 +494,8 @@ element('import-input').addEventListener('change', async (event) => {
   try {
     const parsed = JSON.parse(await file.text());
     config = parseExperimentDocument(parsed);
+    flushWorkerPatch();
+    resetPresentationSmoothing();
     worker.postMessage({ type: 'REPLACE_CONFIG', config });
     syncControls();
   } catch (error) {
@@ -352,18 +513,22 @@ window.addEventListener('keydown', (event) => {
     event.preventDefault();
     setRunning(!running);
   }
-  if (event.code === 'ArrowRight' && !running) {
-    worker.postMessage({ type: 'STEP', deltaMs: 40 });
-  }
+  if (event.code === 'ArrowRight' && !running) worker.postMessage({ type: 'STEP', deltaMs: 40 });
 });
 
 worker.addEventListener('message', (event) => {
-  if (event.data?.type === 'FRAME') updateFrame(event.data.frame);
+  if (event.data?.type !== 'FRAME') return;
+  const frame = event.data.frame;
+  latestFrame = frame;
+  const wasLatched = relayLatch.latched;
+  relayLatch = updateRelayLatch(relayLatch, frame);
+  if (!wasLatched && relayLatch.latched) updateVirtualRelay(frame);
+  schedulePresentation(frame);
 });
 
 worker.addEventListener('error', (event) => {
-  element('run-state').textContent = 'WORKER ERROR';
-  element('canvas-summary').textContent = `Simulation worker error: ${event.message}`;
+  setText('run-state', 'WORKER ERROR');
+  setText('canvas-summary', `Simulation worker error: ${event.message}`);
 });
 
 if ('serviceWorker' in navigator && location.protocol !== 'file:') {
@@ -372,10 +537,15 @@ if ('serviceWorker' in navigator && location.protocol !== 'file:') {
   });
 }
 
+installPresentationMotion();
 syncControls();
 worker.postMessage({ type: 'REPLACE_CONFIG', config });
 
 // Expose a read-only diagnostic snapshot for automated smoke tests and educators.
 Object.defineProperty(window, '__87L_LAB__', {
-  get: () => ({ config: structuredClone(config), frame: latestFrame ? structuredClone(latestFrame) : null })
+  get: () => ({
+    config: structuredClone(config),
+    frame: latestFrame ? structuredClone(latestFrame) : null,
+    presentation: { targetFps: Math.round(1000 / PRESENTATION_INTERVAL_MS), engineFrameMs: 40 }
+  })
 });
