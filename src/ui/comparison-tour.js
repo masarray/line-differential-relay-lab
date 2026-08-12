@@ -1,6 +1,8 @@
-const TOUR_STORAGE_KEY = '87l-two-mode-tour-v2';
+const TOUR_STORAGE_KEY = '87l-two-mode-tour-v3';
 const NORMAL_JITTER_MS = 0.08;
 const TRACKING_OBSERVE_MS = 5000;
+const TRIP_RELAY_OBSERVE_MS = 2800;
+const JITTER_WAVEFORM_OBSERVE_MS = 4200;
 const CARD_GAP = 18;
 const VIEWPORT_GAP = 12;
 
@@ -402,9 +404,9 @@ class ComparisonTour{
     const relay=element('virtual-relay');
     const jitter=element('jitterMs');
     this.render({
-      step:'1 / 4 · BEFORE',
+      step:'1 / 6 · BEFORE',
       title:'Drag Timing jitter to the right',
-      body:'Move the slider slowly to the right. Keep increasing jitter and watch Idiff. Stop when the virtual relay latches TRIP.',
+      body:'Move the slider slowly to the right. Keep increasing jitter and watch Idiff. When the virtual relay latches TRIP, release the slider — the guide will pause so you can inspect the relay and waveforms before moving on.',
       target:rangeField('jitterMs'),
       action:'drag',
       prompt:'DRAG RIGHT →',
@@ -424,34 +426,66 @@ class ComparisonTour{
 
   showTripObserved(){
     this.phase='trip-observed';
+    this.clearTimers();
     this.tripObserver?.disconnect();
+    const started=performance.now();
     this.render({
-      step:'2 / 4 · RESULT',
-      title:'Conventional 87L latched TRIP',
-      body:`At about ${this.firstTripJitter.toFixed(2)} ms jitter, timing misalignment was enough to create an operating condition in this educational baseline.`,
+      step:'2 / 6 · TRIP',
+      title:'Pause and inspect the relay TRIP',
+      body:`At about ${this.firstTripJitter.toFixed(2)} ms jitter, timing misalignment was enough to make conventional 87L latch TRIP even though the electrical scenario is still Healthy through current.`,
       target:element('virtual-relay'),
       tone:'danger',
       action:'observe',
-      prompt:'TRIP OBSERVED',
-      status:'Next, the guide will point to Waveform Tracking.'
+      prompt:'RELEASE & WATCH',
+      status:'Look at the TRIP LED, trip latch, and output path before the guide moves to the waveform.'
     });
-    window.setTimeout(()=>this.waitForTrackingSelection(),900);
+    this.watchInterval=window.setInterval(()=>{
+      if(this.phase!=='trip-observed') return;
+      const remaining=Math.max(0,TRIP_RELAY_OBSERVE_MS-(performance.now()-started));
+      this.card.querySelector('.comparison-tour-status').textContent=`Observe the latched relay · ${(remaining/1000).toFixed(1)} s before waveform focus`;
+    },250);
+    this.watchTimer=window.setTimeout(()=>this.showWaveformObserved(),TRIP_RELAY_OBSERVE_MS);
+  }
+
+  showWaveformObserved(){
+    if(this.phase!=='trip-observed') return;
+    this.phase='waveform-observed';
+    this.clearTimers();
+    const started=performance.now();
+    this.render({
+      step:'3 / 6 · OBSERVE',
+      title:'Now watch what jitter is doing to the waveforms',
+      body:'Keep the jitter exactly where it caused the TRIP. Compare Remote received, Remote aligned, and the differential traces. The unstable timing relationship is the problem Waveform Tracking will address next.',
+      target:element('waveform-canvas'),
+      tone:'danger',
+      action:'observe',
+      prompt:'WATCH WAVEFORMS',
+      status:'Do not change anything yet — just watch the traces for a few seconds.'
+    });
+    this.watchInterval=window.setInterval(()=>{
+      if(this.phase!=='waveform-observed') return;
+      const remaining=Math.max(0,JITTER_WAVEFORM_OBSERVE_MS-(performance.now()-started));
+      this.card.querySelector('.comparison-tour-status').textContent=`Watch the jitter-disturbed waveforms · ${(remaining/1000).toFixed(1)} s`;
+    },250);
+    this.watchTimer=window.setTimeout(()=>this.waitForTrackingSelection(),JITTER_WAVEFORM_OBSERVE_MS);
   }
 
   waitForTrackingSelection(){
-    if(this.phase!=='trip-observed') return;
+    if(this.phase!=='waveform-observed') return;
+    this.clearTimers();
+    this.phase='await-tracking';
     const tracking=document.querySelector('[data-algorithm="smart-tracking"]');
     this.render({
-      step:'2 / 4 · COMPARE',
-      title:'Click Waveform Tracking',
-      body:'Select B · 87L + Waveform Tracking. The demo will then normalize the communication injection and reset the relay automatically.',
+      step:'4 / 6 · COMPARE',
+      title:'Now click Waveform Tracking',
+      body:'You have seen the conventional relay TRIP and the jitter-disturbed waveforms. Select B · 87L + Waveform Tracking. The demo will normalize the communication injection and reset the relay automatically.',
       target:tracking,
       action:'click',
       prompt:'CLICK HERE',
-      status:'The highlighted button is the only action needed now.'
+      status:'Now we repeat the same experiment with waveform-assisted alignment.'
     });
     const detect=()=>{
-      if(this.phase==='trip-observed'&&tracking?.classList.contains('is-active')) this.prepareTrackingPass();
+      if(this.phase==='await-tracking'&&tracking?.classList.contains('is-active')) this.prepareTrackingPass();
     };
     this.modeObserver=new MutationObserver(detect);
     if(tracking) this.modeObserver.observe(tracking,{attributes:true,attributeFilter:['class']});
@@ -461,10 +495,11 @@ class ComparisonTour{
 
   prepareTrackingPass(){
     this.phase='preparing-tracking';
+    this.clearTimers();
     this.modeObserver?.disconnect();
     normalizeInjection('smart-tracking');
     this.render({
-      step:'3 / 4 · AUTO RESET',
+      step:'4 / 6 · AUTO RESET',
       title:'Preparing the same test again',
       body:'Waveform Tracking is selected. Jitter and the other communication injections are returning to the healthy baseline, then the relay latch is cleared.',
       target:element('virtual-relay'),
@@ -484,7 +519,7 @@ class ComparisonTour{
     this.phase='tracking-jitter';
     const jitter=element('jitterMs');
     this.render({
-      step:'3 / 4 · AFTER',
+      step:'5 / 6 · AFTER',
       title:'Repeat the same jitter stress',
       body:`Drag Timing jitter right again. Reach at least ${this.compareJitter.toFixed(2)} ms — the same or stronger stress than the conventional trip point.`,
       target:rangeField('jitterMs'),
@@ -508,7 +543,7 @@ class ComparisonTour{
     const relay=element('virtual-relay');
     const started=performance.now();
     this.render({
-      step:'4 / 4 · OBSERVE',
+      step:'6 / 6 · OBSERVE',
       title:'Hold the jitter and watch the relay',
       body:'Waveform tracking is working with bounded timing correction and evidence supervision. Keep the current jitter applied while the demo observes the relay.',
       target:relay,
@@ -542,7 +577,7 @@ class ComparisonTour{
     this.clearTimers();
     this.tripObserver?.disconnect();
     this.render({
-      step:'4 / 4 · RETRY',
+      step:'6 / 6 · RETRY',
       title:'This stress point still reached TRIP',
       body:'The comparison stays evidence-based, so the guide will not fake a pass. Reset the second pass and try the same jitter point again after the tracker settles.',
       target:element('virtual-relay'),
@@ -564,7 +599,7 @@ class ComparisonTour{
       ? ` Bounded waveform correction is ${correction.toFixed(2)} ms with estimated alignment uncertainty ±${uncertainty.toFixed(2)} ms.`
       : '';
     this.render({
-      step:'4 / 4 · AFTER',
+      step:'6 / 6 · AFTER',
       title:'Waveform Tracking held the relay stable',
       body:`Under the repeated communication stress, waveform-assisted alignment added resilience without pretending bad data is safe.${diagnostic} This can make 87L more robust against timing anomalies such as jitter, path asymmetry, route changes, and related packet-timing disturbance.`,
       target:element('virtual-relay'),
