@@ -33,14 +33,18 @@ The application is intended for technical training, demonstrations, practitioner
 
 ![One-screen industrial 87L simulator preview](docs/assets/simulator-preview.png)
 
-## Algorithm modes
+## Two modes — one clear before/after comparison
 
-| Mode | Alignment method | Communication security behavior |
+The public simulator deliberately presents only two choices:
+
+| Mode | What it demonstrates | Alignment approach |
 |---|---|---|
-| Conventional RTT/2 | `RTT / 2` | Generic baseline; only hard-invalid data is rejected |
-| Communication-supervised RTT/2 | `RTT / 2` | Watch, bounded ride-through, block, and recovery validation |
-| Absolute-time reference | Common sample time | Channel-delay tolerant while time-reference quality remains valid |
-| Experimental waveform-assisted 87L | RTT/2 coarse estimate + bounded dual-horizon tracking | Evidence-aware degraded operation with hard validity vetoes |
+| **A · Conventional 87L** | Baseline line differential response when communication timing is imperfect | `RTT / 2` |
+| **B · 87L + Waveform Tracking** | How bounded waveform-assisted timing alignment can add resilience while retaining evidence supervision | RTT/2 coarse estimate + bounded dual-horizon waveform tracking |
+
+Use the **▶ DEMO** button for the guided comparison. The tour asks you to increase communication jitter yourself, observe the conventional relay result, switch to waveform tracking, then repeat the same stress. The simulator uses the actual protection result; the tour never forces a TRIP or fabricates a successful comparison.
+
+Additional comparator paths remain inside the research engine for deterministic validation and compatibility with historical experiment files. They are intentionally not exposed as public modes, so the user-facing experience stays focused on the conventional-vs-tracking question.
 
 The simulator does not reproduce, benchmark, or claim equivalence with any manufacturer’s proprietary relay algorithm.
 
@@ -68,12 +72,14 @@ Important boundaries:
 - Idiff, Irestraint, pickup, persistence, and trip use measured-valid samples only;
 - ground truth is evaluator-only and cannot enter the algorithm;
 - stale alignment cannot qualify degraded operation;
-- Smart SECURE is a revalidation state, not an unrestricted operating state;
+- revalidation is a supervised state, not unrestricted operation;
 - integrity failure, stale packets, receiver overflow, excessive consecutive loss, and critically low measured coverage remain hard vetoes;
 - runtime safety invariants provide a final defence-in-depth permission guard.
 
 ## Current capabilities
 
+- Two public comparison modes: Conventional 87L and 87L + Waveform Tracking
+- Guided before/after jitter demo with real relay-state observation and automatic reset between passes
 - Local, remote received, remote aligned, raw Idiff, and validated Idiff waveforms
 - Through current, load step, external fault, internal fault, and CT-error scenarios
 - Sequence-numbered packet frames instead of independent sample-drop simulation
@@ -191,6 +197,7 @@ This prevents fail-safe revalidation from being presented as successful protecti
 
 ## Documentation
 
+- [Two-mode guided comparison](docs/TWO_MODE_TOUR.md)
 - [Architecture](docs/ARCHITECTURE.md)
 - [Algorithm notes](docs/ALGORITHM_NOTES.md)
 - [Validation strategy](docs/VALIDATION.md)
